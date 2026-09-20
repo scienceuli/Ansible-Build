@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.homebox.label-subscriber</string>
+    <key>WorkingDirectory</key>
+    <string>/Users/USERNAME/NiimPrintX</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/poetry</string>
+        <string>run</string>
+        <string>python</string>
+        <string>/Users/USERNAME/NiimPrintX/subscriber.py</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>LABEL_MQTT_HOST</key>
+        <string>mqtt.sam-projekte.de</string>
+        <key>LABEL_MQTT_PORT</key>
+        <string>8883</string>
+        <key>LABEL_MQTT_USER</key>
+        <string>homebox</string>
+        <key>LABEL_MQTT_PASSWORD</key>
+        <string>REPLACE_ME</string>
+        <key>LABEL_MQTT_TOPIC</key>
+        <string>homebox/labels</string>
+        <key>LABEL_PRINTER_MODEL</key>
+        <string>d110_m</string>
+        <key>LABEL_PRINTER_ROTATE</key>
+        <string>90</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/USERNAME/Library/Logs/homebox-label-subscriber.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/USERNAME/Library/Logs/homebox-label-subscriber.log</string>
+</dict>
+</plist>

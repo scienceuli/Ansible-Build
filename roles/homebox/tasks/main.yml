@@ -1,0 +1,103 @@
+---
+# roles/homebox/tasks/main.yml
+
+- name: Ensure compose project directory exists
+  ansible.builtin.file:
+    path: "{{ homebox_compose_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Ensure data directory exists
+  ansible.builtin.file:
+    path: "{{ homebox_data_dir }}"
+    state: directory
+    mode: "0755"
+    owner: "{{ homebox_data_owner_uid if homebox_variant in ['-rootless', '-hardened'] else omit }}"
+    group: "{{ homebox_data_owner_gid if homebox_variant in ['-rootless', '-hardened'] else omit }}"
+
+- name: Ensure labels directory exists
+  ansible.builtin.file:
+    path: "{{ homebox_labels_dir }}"
+    state: directory
+    mode: "0755"
+    owner: "{{ homebox_data_owner_uid if homebox_variant in ['-rootless', '-hardened'] else omit }}"
+    group: "{{ homebox_data_owner_gid if homebox_variant in ['-rootless', '-hardened'] else omit }}"
+
+- name: Deploy docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ homebox_compose_dir }}/docker-compose.yml"
+    mode: "0644"
+  register: homebox_compose_file
+
+- name: Pull and (re)start homebox via docker compose
+  community.docker.docker_compose_v2:
+    project_src: "{{ homebox_compose_dir }}"
+    state: present
+    pull: "{{ 'always' if homebox_compose_file.changed else 'missing' }}"
+
+- name: Deploy nginx vhost + TLS for homebox
+  when: homebox_configure_nginx
+  block:
+    - name: Ensure ACME challenge root exists
+      ansible.builtin.file:
+        path: "{{ homebox_acme_challenge_root }}"
+        state: directory
+        mode: "0755"
+
+    - name: Check whether a certificate already exists
+      ansible.builtin.stat:
+        path: "{{ homebox_ssl_cert }}"
+      register: homebox_cert_stat
+      when: homebox_enable_ssl
+
+    # Phase 1: HTTP-only vhost (ssl_active=false) so the ACME HTTP-01
+    # challenge has something to answer on port 80 even on a first run
+    # where no certificate exists yet.
+    - name: Template homebox nginx vhost (bootstrap / current state)
+      ansible.builtin.template:
+        src: nginx-homebox.conf.j2
+        dest: "/etc/nginx/sites-available/{{ homebox_domain }}.conf"
+        mode: "0644"
+      vars:
+        ssl_active: "{{ homebox_enable_ssl and homebox_cert_stat.stat.exists | default(false) }}"
+      notify: reload nginx
+
+    - name: Enable homebox vhost
+      ansible.builtin.file:
+        src: "/etc/nginx/sites-available/{{ homebox_domain }}.conf"
+        dest: "/etc/nginx/sites-enabled/{{ homebox_domain }}.conf"
+        state: link
+      notify: reload nginx
+
+    - name: Test full nginx configuration
+      ansible.builtin.command: nginx -t
+      changed_when: false
+
+    # Make sure nginx is actually serving on port 80 before certbot hits it
+    - name: Apply pending nginx reload now
+      ansible.builtin.meta: flush_handlers
+
+    - name: Obtain Let's Encrypt certificate
+      ansible.builtin.include_role:
+        name: certbot
+      vars:
+        certbot_domain: "{{ homebox_domain }}"
+        certbot_webroot: "{{ homebox_acme_challenge_root }}"
+      when: homebox_enable_ssl and not homebox_cert_stat.stat.exists
+
+    # Phase 2: re-render with SSL now that the cert is guaranteed to exist
+    - name: Template homebox nginx vhost (final, with SSL)
+      ansible.builtin.template:
+        src: nginx-homebox.conf.j2
+        dest: "/etc/nginx/sites-available/{{ homebox_domain }}.conf"
+        mode: "0644"
+      vars:
+        ssl_active: "{{ homebox_enable_ssl }}"
+      notify: reload nginx
+      when: homebox_enable_ssl and not homebox_cert_stat.stat.exists
+
+    - name: Test full nginx configuration (final)
+      ansible.builtin.command: nginx -t
+      changed_when: false
+      when: homebox_enable_ssl and not homebox_cert_stat.stat.exists

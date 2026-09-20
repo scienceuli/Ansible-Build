@@ -1,0 +1,15 @@
+#!/bin/sh
+{{ ansible_managed | comment }}
+set -eu
+
+WATCH_DIR="{{ label_watcher_watch_dir }}"
+WATCH_FILE="{{ label_watcher_watch_filename }}"
+MQTT_HOST="{{ label_watcher_mqtt_host }}"
+MQTT_PORT="{{ label_watcher_mqtt_port }}"
+MQTT_TOPIC="{{ label_watcher_mqtt_topic }}"
+
+inotifywait -m -e close_write -e moved_to --format '%f' "$WATCH_DIR" | while read -r changed_file; do
+    if [ "$changed_file" = "$WATCH_FILE" ]; then
+        mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" -t "$MQTT_TOPIC" -f "$WATCH_DIR/$WATCH_FILE"
+    fi
+done

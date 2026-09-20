@@ -1,0 +1,33 @@
+# Python-generated files
+__pycache__
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.DS_Store
+*.swp
+run.sh
+.temp
+.cache
+dist
+tmp
+.env
+
+
+node_modules
+ansible.cfg
+.vercel
+
+# Virtual environments
+.venv
+venv*
+
+
+# Vault password file - never commit
+.vault-pass
+.vault_pass*
+
+inventories
+inventory.yaml
+inventory.ini

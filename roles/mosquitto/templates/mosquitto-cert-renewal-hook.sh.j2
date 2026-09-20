@@ -1,0 +1,13 @@
+#!/bin/sh
+{{ ansible_managed | comment }}
+# Installed to /etc/letsencrypt/renewal-hooks/deploy/ - certbot runs every
+# script there after ANY domain renews, so guard on which lineage fired.
+set -eu
+
+if [ "$(basename "$RENEWED_LINEAGE")" = "{{ mosquitto_domain }}" ]; then
+    cp "$RENEWED_LINEAGE/fullchain.pem" "{{ mosquitto_ssl_cert }}"
+    cp "$RENEWED_LINEAGE/privkey.pem" "{{ mosquitto_ssl_key }}"
+    chown root:mosquitto "{{ mosquitto_ssl_cert }}" "{{ mosquitto_ssl_key }}"
+    chmod 0640 "{{ mosquitto_ssl_cert }}" "{{ mosquitto_ssl_key }}"
+    systemctl restart mosquitto
+fi

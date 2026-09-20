@@ -1,0 +1,14 @@
+---
+# roles/docker/defaults/main.yml
+
+docker_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin
+
+# Users to add to the docker group (convenience for manual `docker` CLI use;
+# not required by the homebox/nextcloud roles, which run as root via become).
+docker_users:
+  - "{{ ansible_user }}"

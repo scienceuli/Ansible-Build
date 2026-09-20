@@ -1,0 +1,50 @@
+#!/bin/bash
+{{ ansible_managed | comment }}
+set -euo pipefail
+
+set -a
+. "{{ backup_env_file }}"
+set +a
+
+REMOTE="{{ backup_rclone_remote_name }}"
+REMOTE_BASE="{{ backup_remote_subpath }}"
+SRC="{{ backup_source_dir }}"
+DATE="$(date +%Y-%m-%d)"
+CUTOFF="$(date -d '-{{ backup_retention_days }} days' +%Y-%m-%d)"
+
+{% if backup_sqlite_db %}
+# Stage a copy so the live SQLite DB can't be caught mid-write: everything
+# else is copied verbatim, but the DB itself goes through `sqlite3 .backup`,
+# which takes the proper locks for a consistent snapshot.
+STAGING="$(mktemp -d)"
+trap 'rm -rf "$STAGING"' EXIT
+
+rsync -a \
+    --exclude '{{ backup_sqlite_db }}' \
+    --exclude '{{ backup_sqlite_db }}-wal' \
+    --exclude '{{ backup_sqlite_db }}-shm' \
+    --exclude '{{ backup_sqlite_db }}-journal' \
+    "$SRC"/ "$STAGING"/
+
+sqlite3 "$SRC/{{ backup_sqlite_db }}" ".backup '$STAGING/{{ backup_sqlite_db }}'"
+
+SRC="$STAGING"
+{% endif %}
+
+echo "[$(date -Iseconds)] Backing up $SRC to ${REMOTE}:${REMOTE_BASE}/${DATE}"
+rclone sync "$SRC" "${REMOTE}:${REMOTE_BASE}/${DATE}" --config /dev/null
+
+echo "[$(date -Iseconds)] Pruning snapshots older than $CUTOFF"
+rclone lsf "${REMOTE}:${REMOTE_BASE}" --dirs-only --config /dev/null | while read -r entry; do
+    dirname="${entry%/}"
+    case "$dirname" in
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+        *) continue ;;
+    esac
+    if [[ "$dirname" < "$CUTOFF" ]]; then
+        echo "[$(date -Iseconds)] Removing old snapshot $dirname"
+        rclone purge "${REMOTE}:${REMOTE_BASE}/${dirname}" --config /dev/null
+    fi
+done
+
+echo "[$(date -Iseconds)] Done"

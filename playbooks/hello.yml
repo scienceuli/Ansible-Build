@@ -1,0 +1,11 @@
+---
+- hosts: localhost
+
+  tasks:
+    - name: hello
+      debug: msg='Hello!'
+      tags: hello
+
+    - name: goodbye
+      debug: msg='Goodbye!'
+      tags: goodbye

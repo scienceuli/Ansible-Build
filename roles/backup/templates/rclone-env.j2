@@ -1,0 +1,6 @@
+{{ ansible_managed | comment }}
+RCLONE_CONFIG_{{ backup_rclone_remote_name | upper }}_TYPE=webdav
+RCLONE_CONFIG_{{ backup_rclone_remote_name | upper }}_URL={{ backup_webdav_url }}
+RCLONE_CONFIG_{{ backup_rclone_remote_name | upper }}_VENDOR=nextcloud
+RCLONE_CONFIG_{{ backup_rclone_remote_name | upper }}_USER={{ backup_webdav_user }}
+RCLONE_CONFIG_{{ backup_rclone_remote_name | upper }}_PASS={{ backup_obscured_password.stdout }}

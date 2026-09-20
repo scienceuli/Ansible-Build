@@ -1,0 +1,84 @@
+---
+# roles/backup/tasks/main.yml
+
+- name: Ensure required variables are set
+  ansible.builtin.assert:
+    that:
+      - backup_job_name is defined
+      - backup_source_dir is defined
+      - backup_remote_subpath is defined
+      - backup_webdav_url is defined
+      - backup_webdav_user is defined
+      - backup_webdav_password is defined
+    fail_msg: >
+      backup_job_name, backup_source_dir, backup_remote_subpath,
+      backup_webdav_url, backup_webdav_user and backup_webdav_password
+      must all be set.
+
+- name: Install rclone
+  ansible.builtin.apt:
+    name: rclone
+    state: present
+    update_cache: true
+
+- name: Install rsync and sqlite3 (for consistent SQLite snapshots)
+  ansible.builtin.apt:
+    name:
+      - rsync
+      - sqlite3
+    state: present
+  when: backup_sqlite_db | length > 0
+
+- name: Ensure rclone env directory exists
+  ansible.builtin.file:
+    path: "{{ backup_env_file | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Force regeneration of rclone env file if requested
+  ansible.builtin.file:
+    path: "{{ backup_env_file }}"
+    state: absent
+  when: backup_force_env_regen
+
+- name: Check if rclone env file already exists
+  ansible.builtin.stat:
+    path: "{{ backup_env_file }}"
+  register: backup_env_stat
+
+# rclone obscure has a random nonce, so it produces a different (but equally
+# valid) string on every call - only run it once and let the `creates`-style
+# guard above keep the env file (and thus the obscured password) stable.
+- name: Obscure WebDAV password for rclone
+  ansible.builtin.command: "rclone obscure {{ backup_webdav_password | quote }}"
+  register: backup_obscured_password
+  no_log: true
+  when: not backup_env_stat.stat.exists
+
+- name: Deploy rclone env file
+  ansible.builtin.template:
+    src: rclone-env.j2
+    dest: "{{ backup_env_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: not backup_env_stat.stat.exists
+
+- name: Deploy backup script
+  ansible.builtin.template:
+    src: backup.sh.j2
+    dest: "{{ backup_script_path }}"
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Install cron job
+  ansible.builtin.cron:
+    name: "backup {{ backup_job_name }} to nextcloud"
+    user: root
+    minute: "{{ backup_cron_minute }}"
+    hour: "{{ backup_cron_hour }}"
+    job: "{{ backup_script_path }} >> {{ backup_log_file }} 2>&1"

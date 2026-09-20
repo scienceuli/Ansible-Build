@@ -1,0 +1,39 @@
+---
+- name: Bootstrap host (Docker + nginx)
+  hosts: dirac
+  become: true
+  pre_tasks:
+    - name: Configure passwordless sudo for {{ ansible_user }}
+      ansible.builtin.copy:
+        content: "{{ ansible_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        dest: "/etc/sudoers.d/{{ ansible_user }}-nopasswd"
+        owner: root
+        group: root
+        mode: "0440"
+        validate: "visudo -cf %s"
+  roles:
+    - docker
+    - nginx
+    - mosquitto
+
+- name: Deploy HomeBox
+  hosts: dirac
+  become: true
+  roles:
+    - homebox
+    - label_watcher
+    - role: backup
+      vars:
+        backup_job_name: "homebox"
+        backup_source_dir: "{{ homebox_data_dir }}"
+        backup_sqlite_db: "homebox.db"
+        backup_remote_subpath: "{{ backup_homebox_remote_subpath }}"
+        backup_webdav_url: "{{ backup_nextcloud_webdav_url }}"
+        backup_webdav_user: "{{ backup_nextcloud_webdav_user }}"
+        backup_webdav_password: "{{ vault_backup_nextcloud_webdav_password }}"
+
+- name: Deploy Nextcloud
+  hosts: dirac
+  become: true
+  roles:
+    - nextcloud

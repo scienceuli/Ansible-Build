@@ -1,0 +1,42 @@
+---
+# roles/homebox/defaults/main.yml
+
+homebox_image: "ghcr.io/sysadminsmedia/homebox"
+homebox_image_tag: "latest"          # pin a version tag once you've tested it, e.g. "v0.25.0"
+homebox_variant: ""                  # "" | "-rootless" | "-hardened"  -> appended to tag
+
+homebox_container_name: "homebox"
+homebox_host_port: 3100
+homebox_container_port: 7745
+
+homebox_data_dir: "/opt/docker/homebox/data"
+homebox_timezone: "Europe/Berlin"
+
+# Bind-mounted to /labels in the container - only needed if HBOX_LABEL_MAKER_PRINT_COMMAND
+# (in homebox_extra_env) writes label images somewhere a host-side process can pick them up.
+homebox_labels_dir: "/opt/docker/homebox/labels"
+
+# Only used when homebox_variant is rootless/hardened (non-root UID/GID in image)
+homebox_data_owner_uid: 65532
+homebox_data_owner_gid: 65532
+
+homebox_restart_policy: "unless-stopped"
+
+# Extra environment variables, e.g. HBOX_WEB_MAX_UPLOAD_SIZE, HBOX_LOG_LEVEL, etc.
+# See https://homebox.software/en/configure/ for the full list.
+homebox_extra_env: {}
+
+# Docker network to attach to (e.g. a shared reverse-proxy network). Leave empty for default bridge.
+homebox_network: ""
+
+# Compose project directory on the remote host
+homebox_compose_dir: "/opt/docker/homebox"
+
+# --- nginx reverse proxy ---
+homebox_configure_nginx: true
+homebox_domain: "homebox.example.com"
+homebox_enable_ssl: true
+homebox_ssl_cert: "/etc/letsencrypt/live/{{ homebox_domain }}/fullchain.pem"
+homebox_ssl_key: "/etc/letsencrypt/live/{{ homebox_domain }}/privkey.pem"
+homebox_acme_challenge_root: "/var/www/certbot"
+homebox_client_max_body_size: "50m"   # bump this if you'll be uploading large receipt/warranty PDFs

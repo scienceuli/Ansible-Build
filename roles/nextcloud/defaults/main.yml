@@ -1,0 +1,43 @@
+---
+# roles/nextcloud/defaults/main.yml
+
+nextcloud_image: "nextcloud"
+nextcloud_image_tag: "31-apache"     # pin to a specific minor once tested, e.g. "31.0.2-apache"
+
+nextcloud_container_name: "nextcloud-app"
+nextcloud_host_port: 3101
+nextcloud_container_port: 80
+
+nextcloud_compose_dir: "/opt/docker/nextcloud"
+nextcloud_data_dir: "/opt/docker/nextcloud/app-data"     # nextcloud html/config/data volume
+nextcloud_db_data_dir: "/opt/docker/nextcloud/db-data"
+
+nextcloud_timezone: "Europe/Berlin"
+nextcloud_domain: "cloud.example.com"
+
+nextcloud_restart_policy: "unless-stopped"
+
+# --- database (Postgres, matching your existing stack) ---
+nextcloud_db_image: "postgres"
+nextcloud_db_image_tag: "16-alpine"
+nextcloud_db_name: "nextcloud"
+nextcloud_db_user: "nextcloud"
+# nextcloud_db_password: set this in group_vars/host_vars via ansible-vault, e.g.:
+#   ansible-vault encrypt_string 'supersecret' --name 'nextcloud_db_password'
+
+# --- redis (recommended for file locking / caching at any real usage level) ---
+nextcloud_enable_redis: true
+nextcloud_redis_image: "redis"
+nextcloud_redis_image_tag: "7-alpine"
+
+# --- admin bootstrap (only used on first run, via NEXTCLOUD_ADMIN_USER/PASSWORD) ---
+nextcloud_admin_user: "admin"
+# nextcloud_admin_password: also vault this
+
+# --- nginx reverse proxy ---
+nextcloud_configure_nginx: true
+nextcloud_enable_ssl: true
+nextcloud_ssl_cert: "/etc/letsencrypt/live/{{ nextcloud_domain }}/fullchain.pem"
+nextcloud_ssl_key: "/etc/letsencrypt/live/{{ nextcloud_domain }}/privkey.pem"
+nextcloud_acme_challenge_root: "/var/www/certbot"
+nextcloud_client_max_body_size: "10G"   # Nextcloud file uploads can be large; adjust to your needs

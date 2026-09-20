@@ -1,0 +1,26 @@
+{{ ansible_managed | comment }}
+services:
+  homebox:
+    image: "{{ homebox_image }}:{{ homebox_image_tag }}{{ homebox_variant }}"
+    container_name: "{{ homebox_container_name }}"
+    restart: "{{ homebox_restart_policy }}"
+    ports:
+      - "{{ homebox_host_port }}:{{ homebox_container_port }}"
+    environment:
+      TZ: "{{ homebox_timezone }}"
+{% for key, value in homebox_extra_env.items() %}
+      {{ key }}: "{{ value }}"
+{% endfor %}
+    volumes:
+      - "{{ homebox_data_dir }}:/data"
+      - "{{ homebox_labels_dir }}:/labels"
+{% if homebox_network %}
+    networks:
+      - "{{ homebox_network }}"
+{% endif %}
+
+{% if homebox_network %}
+networks:
+  {{ homebox_network }}:
+    external: true
+{% endif %}

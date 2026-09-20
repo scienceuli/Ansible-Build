@@ -1,0 +1,48 @@
+{{ ansible_managed | comment }}
+services:
+  db:
+    image: "{{ nextcloud_db_image }}:{{ nextcloud_db_image_tag }}"
+    container_name: "nextcloud-db"
+    restart: "{{ nextcloud_restart_policy }}"
+    environment:
+      POSTGRES_DB: "{{ nextcloud_db_name }}"
+      POSTGRES_USER: "{{ nextcloud_db_user }}"
+      POSTGRES_PASSWORD: "{{ nextcloud_db_password }}"
+      TZ: "{{ nextcloud_timezone }}"
+    volumes:
+      - "{{ nextcloud_db_data_dir }}:/var/lib/postgresql/data"
+
+{% if nextcloud_enable_redis %}
+  redis:
+    image: "{{ nextcloud_redis_image }}:{{ nextcloud_redis_image_tag }}"
+    container_name: "nextcloud-redis"
+    restart: "{{ nextcloud_restart_policy }}"
+{% endif %}
+
+  app:
+    image: "{{ nextcloud_image }}:{{ nextcloud_image_tag }}"
+    container_name: "{{ nextcloud_container_name }}"
+    restart: "{{ nextcloud_restart_policy }}"
+    depends_on:
+      - db
+{% if nextcloud_enable_redis %}
+      - redis
+{% endif %}
+    ports:
+      - "{{ nextcloud_host_port }}:{{ nextcloud_container_port }}"
+    environment:
+      TZ: "{{ nextcloud_timezone }}"
+      POSTGRES_DB: "{{ nextcloud_db_name }}"
+      POSTGRES_USER: "{{ nextcloud_db_user }}"
+      POSTGRES_PASSWORD: "{{ nextcloud_db_password }}"
+      POSTGRES_HOST: "db"
+{% if nextcloud_enable_redis %}
+      REDIS_HOST: "redis"
+{% endif %}
+      NEXTCLOUD_TRUSTED_DOMAINS: "{{ nextcloud_domain }}"
+      OVERWRITEPROTOCOL: "https"
+      OVERWRITECLIURL: "https://{{ nextcloud_domain }}"
+      NEXTCLOUD_ADMIN_USER: "{{ nextcloud_admin_user }}"
+      NEXTCLOUD_ADMIN_PASSWORD: "{{ nextcloud_admin_password }}"
+    volumes:
+      - "{{ nextcloud_data_dir }}:/var/www/html"

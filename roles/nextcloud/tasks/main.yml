@@ -1,0 +1,100 @@
+---
+# roles/nextcloud/tasks/main.yml
+
+- name: Ensure required vault-sourced variables are set
+  ansible.builtin.assert:
+    that:
+      - nextcloud_db_password is defined
+      - nextcloud_admin_password is defined
+    fail_msg: >
+      nextcloud_db_password and nextcloud_admin_password must be set
+      (e.g. via an ansible-vault-encrypted group_vars/host_vars file).
+
+- name: Ensure compose project directory exists
+  ansible.builtin.file:
+    path: "{{ nextcloud_compose_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Ensure data directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ nextcloud_data_dir }}"
+    - "{{ nextcloud_db_data_dir }}"
+
+- name: Deploy docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ nextcloud_compose_dir }}/docker-compose.yml"
+    mode: "0640"          # contains DB/admin credentials, keep it tighter than the homebox one
+  register: nextcloud_compose_file
+
+- name: Pull and (re)start nextcloud stack via docker compose
+  community.docker.docker_compose_v2:
+    project_src: "{{ nextcloud_compose_dir }}"
+    state: present
+    pull: "{{ 'always' if nextcloud_compose_file.changed else 'missing' }}"
+
+- name: Deploy nginx vhost + TLS for nextcloud
+  when: nextcloud_configure_nginx
+  block:
+    - name: Ensure ACME challenge root exists (harmless if shared with other vhosts)
+      ansible.builtin.file:
+        path: "{{ nextcloud_acme_challenge_root }}"
+        state: directory
+        mode: "0755"
+
+    - name: Check whether a certificate already exists
+      ansible.builtin.stat:
+        path: "{{ nextcloud_ssl_cert }}"
+      register: nextcloud_cert_stat
+      when: nextcloud_enable_ssl
+
+    - name: Template nextcloud nginx vhost (bootstrap / current state)
+      ansible.builtin.template:
+        src: nginx-nextcloud.conf.j2
+        dest: "/etc/nginx/sites-available/{{ nextcloud_domain }}.conf"
+        mode: "0644"
+      vars:
+        ssl_active: "{{ nextcloud_enable_ssl and nextcloud_cert_stat.stat.exists | default(false) }}"
+      notify: reload nginx
+
+    - name: Enable nextcloud vhost
+      ansible.builtin.file:
+        src: "/etc/nginx/sites-available/{{ nextcloud_domain }}.conf"
+        dest: "/etc/nginx/sites-enabled/{{ nextcloud_domain }}.conf"
+        state: link
+      notify: reload nginx
+
+    - name: Test full nginx configuration
+      ansible.builtin.command: nginx -t
+      changed_when: false
+
+    - name: Apply pending nginx reload now
+      ansible.builtin.meta: flush_handlers
+
+    - name: Obtain Let's Encrypt certificate
+      ansible.builtin.include_role:
+        name: certbot
+      vars:
+        certbot_domain: "{{ nextcloud_domain }}"
+        certbot_webroot: "{{ nextcloud_acme_challenge_root }}"
+      when: nextcloud_enable_ssl and not nextcloud_cert_stat.stat.exists
+
+    - name: Template nextcloud nginx vhost (final, with SSL)
+      ansible.builtin.template:
+        src: nginx-nextcloud.conf.j2
+        dest: "/etc/nginx/sites-available/{{ nextcloud_domain }}.conf"
+        mode: "0644"
+      vars:
+        ssl_active: "{{ nextcloud_enable_ssl }}"
+      notify: reload nginx
+      when: nextcloud_enable_ssl and not nextcloud_cert_stat.stat.exists
+
+    - name: Test full nginx configuration (final)
+      ansible.builtin.command: nginx -t
+      changed_when: false
+      when: nextcloud_enable_ssl and not nextcloud_cert_stat.stat.exists

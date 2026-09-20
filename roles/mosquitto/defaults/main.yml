@@ -1,0 +1,23 @@
+---
+# roles/mosquitto/defaults/main.yml
+
+mosquitto_domain: "mqtt.example.com"
+mosquitto_acme_challenge_root: "/var/www/certbot"
+
+# External TLS listener (internet-facing, for remote subscribers)
+mosquitto_external_port: 8883
+
+# mosquitto runs as its own unprivileged user and can't read the
+# root-only /etc/letsencrypt/{live,archive} dirs directly (unlike nginx,
+# which opens certs as root before dropping privileges) - so the cert/key
+# are copied here instead, kept in sync by a certbot renewal hook.
+mosquitto_cert_dir: "/etc/mosquitto/certs"
+mosquitto_ssl_cert: "{{ mosquitto_cert_dir }}/fullchain.pem"
+mosquitto_ssl_key: "{{ mosquitto_cert_dir }}/privkey.pem"
+
+# Local loopback listener (no TLS/auth - only reachable from processes on this host,
+# e.g. the label_watcher role publishing homebox label images)
+mosquitto_local_port: 1883
+
+mosquitto_user: "homebox"
+# mosquitto_password: required, set via ansible-vault (see inventories/dirac/host_vars/dirac/vault.yml)

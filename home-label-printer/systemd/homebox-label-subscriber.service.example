@@ -1,0 +1,16 @@
+[Unit]
+Description=Homebox label print subscriber (MQTT -> NiimPrintX -> D110)
+After=network-online.target bluetooth.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/NiimPrintX
+EnvironmentFile=/home/pi/NiimPrintX/.env
+ExecStart=/home/pi/.local/bin/poetry run python /home/pi/NiimPrintX/subscriber.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

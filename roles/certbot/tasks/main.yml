@@ -1,0 +1,72 @@
+---
+# roles/certbot/tasks/main.yml
+#
+# Meant to be included per-domain from an app role, e.g.:
+#
+#   - name: Obtain Let's Encrypt cert
+#     ansible.builtin.include_role:
+#       name: certbot
+#     vars:
+#       certbot_domain: "{{ homebox_domain }}"
+#       certbot_webroot: "{{ homebox_acme_challenge_root }}"
+#
+# Assumes the calling role has already deployed an HTTP-only nginx vhost
+# serving /.well-known/acme-challenge/ from certbot_webroot, and that
+# nginx is running and reloaded (flush_handlers) before this runs.
+
+- name: Assert required variables are set
+  ansible.builtin.assert:
+    that:
+      - letsencrypt_email | length > 0
+      - certbot_domain is defined
+      - certbot_webroot is defined
+    fail_msg: "letsencrypt_email, certbot_domain and certbot_webroot must all be set."
+
+- name: Install certbot
+  ansible.builtin.apt:
+    name: certbot
+    state: present
+    update_cache: true
+
+- name: Ensure certbot renewal-hooks/deploy directory exists
+  ansible.builtin.file:
+    path: /etc/letsencrypt/renewal-hooks/deploy
+    state: directory
+    mode: "0755"
+
+- name: Install nginx-reload deploy hook (runs after every future renewal, for every domain)
+  ansible.builtin.copy:
+    src: reload-nginx.sh
+    dest: /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+    mode: "0755"
+
+- name: Check whether a certificate already exists for this domain
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ certbot_domain }}/fullchain.pem"
+  register: certbot_existing_cert
+
+- name: Issue certificate via webroot
+  ansible.builtin.command:
+    cmd: >
+      certbot certonly --webroot
+      --webroot-path {{ certbot_webroot }}
+      -d {{ certbot_domain }}
+      -m {{ letsencrypt_email }}
+      --agree-tos --non-interactive --no-eff-email
+      {{ '--staging' if certbot_staging else '' }}
+  when: not certbot_existing_cert.stat.exists
+  register: certbot_issue_result
+  changed_when: "'Congratulations' in certbot_issue_result.stdout or 'Successfully received certificate' in certbot_issue_result.stdout"
+
+- name: Re-check certificate exists after issuance attempt
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ certbot_domain }}/fullchain.pem"
+  register: certbot_final_cert
+
+- name: Fail loudly if we still don't have a cert (check DNS + port 80 reachability)
+  ansible.builtin.fail:
+    msg: >
+      No certificate found at /etc/letsencrypt/live/{{ certbot_domain }}/ after
+      running certbot. Check that {{ certbot_domain }} resolves to this host and
+      that port 80 is reachable from the internet for the ACME HTTP-01 challenge.
+  when: not certbot_final_cert.stat.exists

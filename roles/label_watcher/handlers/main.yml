@@ -1,0 +1,6 @@
+---
+- name: restart homebox-label-watcher
+  ansible.builtin.systemd:
+    name: homebox-label-watcher
+    state: restarted
+    daemon_reload: true

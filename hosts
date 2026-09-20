@@ -1,0 +1,12 @@
+ansiblevm ansible_host=192.168.64.5.nip.io
+ansiblevm2 ansible_host=192.168.64.6.nip.io
+
+[ansible_hosts]
+ansiblevm
+ansiblevm2
+
+[ansible_hosts:vars]
+ansible_connection=ssh
+ansible_user=vmadmin
+ansible_become=yes
+ansible_private_key_file=./example_key

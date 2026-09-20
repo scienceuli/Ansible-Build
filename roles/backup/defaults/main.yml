@@ -1,0 +1,41 @@
+---
+# roles/backup/defaults/main.yml
+#
+# Generic rclone-based backup-to-WebDAV role. Include once per backup job
+# with job-specific vars, e.g.:
+#
+#   - role: backup
+#     vars:
+#       backup_job_name: "homebox"
+#       backup_source_dir: "{{ homebox_data_dir }}"
+#       backup_remote_subpath: "Backups/homebox"
+#       backup_webdav_url: "..."
+#       backup_webdav_user: "..."
+#       backup_webdav_password: "{{ vault_... }}"
+
+# Required, no sane default:
+# backup_job_name       - short alnum id, used in filenames/env var names (e.g. "homebox")
+# backup_source_dir     - local directory to back up
+# backup_remote_subpath - path on the WebDAV remote, dated subfolders are created under it
+# backup_webdav_url     - full WebDAV endpoint URL
+# backup_webdav_user
+# backup_webdav_password
+
+backup_rclone_remote_name: "{{ backup_job_name }}"
+backup_env_file: "/etc/rclone/{{ backup_job_name }}.env"
+backup_script_path: "/usr/local/bin/backup-{{ backup_job_name }}.sh"
+backup_log_file: "/var/log/backup-{{ backup_job_name }}.log"
+
+backup_retention_days: 14
+
+# Optional: filename (relative to backup_source_dir) of a SQLite DB to snapshot
+# via `sqlite3 .backup` before syncing, instead of copying the live file as-is.
+# Avoids catching the DB mid-write. Leave empty to just copy files verbatim.
+backup_sqlite_db: ""
+
+backup_cron_hour: 3
+backup_cron_minute: 15
+
+# Set true to force the env file (and thus the obscured password) to be
+# regenerated on the next run, e.g. after rotating backup_webdav_password.
+backup_force_env_regen: false

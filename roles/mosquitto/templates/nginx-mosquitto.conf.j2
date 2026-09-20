@@ -1,0 +1,18 @@
+{{ ansible_managed | comment }}
+# MQTT itself is raw TCP on {{ mosquitto_external_port }}, not proxied through nginx.
+# This vhost only exists to serve the Let's Encrypt HTTP-01 challenge for
+# {{ mosquitto_domain }}.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ mosquitto_domain }};
+
+    location /.well-known/acme-challenge/ {
+        root {{ mosquitto_acme_challenge_root }};
+    }
+
+    location / {
+        return 404;
+    }
+}

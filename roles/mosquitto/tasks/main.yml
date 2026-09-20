@@ -1,0 +1,115 @@
+---
+# roles/mosquitto/tasks/main.yml
+
+- name: Ensure required variables are set
+  ansible.builtin.assert:
+    that:
+      - mosquitto_password is defined
+    fail_msg: >
+      mosquitto_password must be set (e.g. via an ansible-vault-encrypted
+      host_vars file).
+
+- name: Install mosquitto
+  ansible.builtin.apt:
+    name:
+      - mosquitto
+      - mosquitto-clients
+    state: present
+    update_cache: true
+
+- name: Ensure ACME challenge root exists
+  ansible.builtin.file:
+    path: "{{ mosquitto_acme_challenge_root }}"
+    state: directory
+    mode: "0755"
+
+- name: Check whether a certificate already exists
+  ansible.builtin.stat:
+    path: "{{ mosquitto_ssl_cert }}"
+  register: mosquitto_cert_stat
+
+- name: Template nginx vhost for ACME challenge
+  ansible.builtin.template:
+    src: nginx-mosquitto.conf.j2
+    dest: "/etc/nginx/sites-available/{{ mosquitto_domain }}.conf"
+    mode: "0644"
+  notify: reload nginx
+
+- name: Enable mosquitto challenge vhost
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/{{ mosquitto_domain }}.conf"
+    dest: "/etc/nginx/sites-enabled/{{ mosquitto_domain }}.conf"
+    state: link
+  notify: reload nginx
+
+- name: Test full nginx configuration
+  ansible.builtin.command: nginx -t
+  changed_when: false
+
+- name: Apply pending nginx reload now
+  ansible.builtin.meta: flush_handlers
+
+- name: Obtain Let's Encrypt certificate
+  ansible.builtin.include_role:
+    name: certbot
+  vars:
+    certbot_domain: "{{ mosquitto_domain }}"
+    certbot_webroot: "{{ mosquitto_acme_challenge_root }}"
+  when: not mosquitto_cert_stat.stat.exists
+
+- name: Ensure mosquitto cert directory exists
+  ansible.builtin.file:
+    path: "{{ mosquitto_cert_dir }}"
+    state: directory
+    owner: root
+    group: mosquitto
+    mode: "0750"
+
+- name: Copy certificate + key into mosquitto's cert directory
+  ansible.builtin.copy:
+    src: "/etc/letsencrypt/live/{{ mosquitto_domain }}/{{ item.src }}"
+    dest: "{{ item.dest }}"
+    remote_src: true
+    owner: root
+    group: mosquitto
+    mode: "0640"
+  loop:
+    - { src: "fullchain.pem", dest: "{{ mosquitto_ssl_cert }}" }
+    - { src: "privkey.pem", dest: "{{ mosquitto_ssl_key }}" }
+  notify: restart mosquitto
+
+- name: Install mosquitto cert renewal hook
+  ansible.builtin.template:
+    src: mosquitto-cert-renewal-hook.sh.j2
+    dest: /etc/letsencrypt/renewal-hooks/deploy/mosquitto-certs.sh
+    mode: "0755"
+
+- name: Deploy mosquitto configuration
+  ansible.builtin.template:
+    src: mosquitto.conf.j2
+    dest: /etc/mosquitto/conf.d/homebox.conf
+    mode: "0644"
+  notify: restart mosquitto
+
+- name: Ensure mosquitto password file exists
+  ansible.builtin.file:
+    path: /etc/mosquitto/passwd
+    state: touch
+    owner: mosquitto
+    group: mosquitto
+    mode: "0600"
+    modification_time: preserve
+    access_time: preserve
+
+- name: Set mosquitto user password
+  ansible.builtin.command:
+    cmd: "mosquitto_passwd -b /etc/mosquitto/passwd {{ mosquitto_user }} {{ mosquitto_password }}"
+  changed_when: true
+  no_log: true
+  notify: restart mosquitto
+
+- name: Ensure mosquitto service is enabled and running
+  ansible.builtin.systemd:
+    name: mosquitto
+    enabled: true
+    state: started

@@ -1,0 +1,10 @@
+---
+- hosts: all
+  gather_facts: false
+  vars:
+    ssh_key: '/Users/scienceuli/Devel/Ansible-Build/playbooks/files/macbook_air_ssh_key'
+  tasks:
+    - name: copy ssh key
+      authorized_key:
+        key: "{{ lookup('file', ssh_key) }}"
+        user: scienceuli

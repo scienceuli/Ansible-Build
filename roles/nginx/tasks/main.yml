@@ -1,0 +1,21 @@
+---
+# roles/nginx/tasks/main.yml
+
+- name: Install nginx
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+    update_cache: true
+
+- name: Remove default nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  when: nginx_remove_default_site
+  notify: reload nginx
+
+- name: Ensure nginx service is enabled and running
+  ansible.builtin.systemd:
+    name: nginx
+    enabled: true
+    state: started

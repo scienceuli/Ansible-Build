@@ -1,0 +1,13 @@
+---
+# roles/label_watcher/defaults/main.yml
+#
+# Watches for Homebox label images and republishes them to a local mosquitto
+# broker (see roles/mosquitto) for pickup by a subscriber elsewhere (e.g. a
+# home-side script driving a Bluetooth label printer).
+
+label_watcher_watch_dir: "/opt/docker/homebox/labels"
+label_watcher_watch_filename: "label.png"
+
+label_watcher_mqtt_host: "127.0.0.1"
+label_watcher_mqtt_port: 1883
+label_watcher_mqtt_topic: "homebox/labels"

@@ -1,0 +1,13 @@
+{{ ansible_managed | comment }}
+per_listener_settings true
+
+# Loopback only - no auth, for local publishers on this host (e.g. label_watcher)
+listener {{ mosquitto_local_port }} 127.0.0.1
+allow_anonymous true
+
+# Internet-facing - auth required, TLS terminated by mosquitto itself
+listener {{ mosquitto_external_port }}
+allow_anonymous false
+password_file /etc/mosquitto/passwd
+certfile {{ mosquitto_ssl_cert }}
+keyfile {{ mosquitto_ssl_key }}
