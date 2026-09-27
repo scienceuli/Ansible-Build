@@ -1,0 +1,19 @@
+{{ ansible_managed | comment }}
+services:
+  sim:
+    build: ./src
+    image: "sim:latest"
+    container_name: "{{ sim_container_name }}"
+    restart: unless-stopped
+    ports:
+      - "{{ sim_host_port }}:8000"
+    environment:
+      DJANGO_DEBUG: "0"
+      DJANGO_ALLOWED_HOSTS: {{ sim_allowed_hosts | to_json }}
+      DJANGO_DB_PATH: "/data/db.sqlite3"
+      # "$" must be doubled or compose treats it as variable interpolation
+      DJANGO_SECRET_KEY: {{ sim_secret_key | replace('$', '$$') | to_json }}
+      EMAIL_HOST_USER: {{ sim_email_host_user | replace('$', '$$') | to_json }}
+      EMAIL_HOST_PASSWORD: {{ sim_email_host_password | replace('$', '$$') | to_json }}
+    volumes:
+      - "{{ sim_data_dir }}:/data"

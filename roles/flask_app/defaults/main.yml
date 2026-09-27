@@ -1,0 +1,34 @@
+---
+# roles/flask_app/defaults/main.yml
+#
+# Deploys a Flask app (venv + gunicorn + systemd) behind the shared nginx
+# role. Currently used for flask_info on raspizero.
+
+# Required, no sane default (set in host_vars):
+#   app_repo         - SSH URL of the (private) app repo, e.g. git@github.com:user/app.git
+#   server_name      - nginx server_name (hostname/IP the app is reached under)
+#   caldav_url
+#   caldav_username
+#   caldav_password  - vault it
+
+app_name: "flask_app"
+app_branch: "main"
+
+app_user: "www-data"
+app_dir: "/opt/{{ app_name }}"
+venv_dir: "{{ app_dir }}/venv"
+app_port: 8000
+
+# The role generates an SSH key here; add its public key as a read-only
+# Deploy key on the GitHub repo (the first run prints it and stops). Stored
+# outside app_dir (git clone needs an empty target dir) and outside
+# ~app_user, since app_user may have no home directory worth writing into
+# (e.g. www-data: home /var/www, nologin shell).
+app_deploy_key_dir: "/etc/{{ app_name }}/deploy"
+app_deploy_key_path: "{{ app_deploy_key_dir }}/deploy_key"
+app_known_hosts_path: "{{ app_deploy_key_dir }}/known_hosts"
+
+# GitHub's published ed25519 host key (https://api.github.com/meta -> ssh_keys),
+# so the first connection is verified instead of blindly trusted.
+app_git_host: "github.com"
+app_git_host_key: "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"

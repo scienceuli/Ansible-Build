@@ -1,0 +1,16 @@
+---
+- name: Deploy SIM (Django + LaTeX invoices) to noether
+  hosts: noether
+  become: true
+  roles:
+    - docker
+    - sim
+    - role: backup
+      vars:
+        backup_job_name: "sim"
+        backup_source_dir: "{{ sim_data_dir }}"
+        backup_sqlite_db: "db.sqlite3"
+        backup_remote_subpath: "{{ backup_sim_remote_subpath }}"
+        backup_webdav_url: "{{ backup_nextcloud_webdav_url }}"
+        backup_webdav_user: "{{ backup_nextcloud_webdav_user }}"
+        backup_webdav_password: "{{ vault_backup_nextcloud_webdav_password }}"

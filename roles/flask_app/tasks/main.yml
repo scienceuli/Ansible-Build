@@ -1,0 +1,175 @@
+---
+# roles/flask_app/tasks/main.yml
+
+- name: Ensure required variables are set
+  ansible.builtin.assert:
+    that:
+      - app_repo is defined
+      - server_name is defined
+      - caldav_url is defined
+      - caldav_username is defined
+      - caldav_password is defined
+    fail_msg: >
+      app_repo, server_name, caldav_url, caldav_username and caldav_password
+      must all be set (caldav_password via an ansible-vault-encrypted
+      host_vars file).
+
+- name: Install system dependencies
+  ansible.builtin.apt:
+    name:
+      - python3
+      - python3-pip
+      - python3-venv
+      - git
+      - openssh-client
+      # Needed so Ansible can use POSIX ACLs when running tasks as
+      # become_user (an unprivileged user); without it, Ansible falls back
+      # to a broken macOS/BSD-style chmod ACL syntax on Linux and fails.
+      - acl
+      # Runtime shared libraries the piwheels-prebuilt Pillow wheel is linked
+      # against (image format support) - not present on a minimal Debian
+      # image. Without these, `import PIL` fails with e.g.
+      # "ImportError: libopenjp2.so.7: cannot open shared object file".
+      - libjpeg62-turbo
+      - zlib1g
+      - libopenjp2-7
+      - libtiff5
+      - libfreetype6
+      - liblcms2-2
+      - libwebp6
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create application directory
+  ansible.builtin.file:
+    path: "{{ app_dir }}"
+    state: directory
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: "0755"
+
+- name: Ensure deploy-key directory exists
+  ansible.builtin.file:
+    path: "{{ app_deploy_key_path | dirname }}"
+    state: directory
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: "0700"
+
+- name: Generate deploy key for the private repo
+  ansible.builtin.command:
+    argv:
+      - ssh-keygen
+      - -t
+      - ed25519
+      - -N
+      - ""
+      - -C
+      - "{{ app_name }}-deploy@{{ inventory_hostname }}"
+      - -f
+      - "{{ app_deploy_key_path }}"
+    creates: "{{ app_deploy_key_path }}"
+  become_user: "{{ app_user }}"
+
+- name: Read deploy public key
+  ansible.builtin.slurp:
+    src: "{{ app_deploy_key_path }}.pub"
+  register: app_deploy_pubkey
+
+- name: Trust the git host's SSH host key
+  ansible.builtin.known_hosts:
+    path: "{{ app_known_hosts_path }}"
+    name: "{{ app_git_host }}"
+    key: "{{ app_git_host_key }}"
+  become_user: "{{ app_user }}"
+
+# Instance data (the sqlite DB) is not in the repo.
+- name: Clone / update the Flask app from git
+  block:
+    - name: Fetch app source from git
+      ansible.builtin.git:
+        repo: "{{ app_repo }}"
+        dest: "{{ app_dir }}"
+        version: "{{ app_branch }}"
+        force: true
+      become_user: "{{ app_user }}"
+      environment:
+        GIT_SSH_COMMAND: "ssh -i {{ app_deploy_key_path }} -o UserKnownHostsFile={{ app_known_hosts_path }} -o IdentitiesOnly=yes"
+      notify: restart gunicorn
+  rescue:
+    - name: Explain how to authorize the deploy key
+      ansible.builtin.fail:
+        msg: >
+          Could not fetch {{ app_repo }}. If this is the first run, add the
+          following public key as a read-only Deploy key on the repository
+          (GitHub: Settings > Deploy keys), then re-run:
+          {{ app_deploy_pubkey.content | b64decode | trim }}
+
+- name: Create Python virtual environment
+  ansible.builtin.command: python3 -m venv {{ venv_dir }}
+  args:
+    creates: "{{ venv_dir }}/bin/activate"
+  become_user: "{{ app_user }}"
+
+# Debian's python3-venv bootstraps whatever pip shipped with the base image
+# (e.g. 20.3.4 on Debian 11) - old enough to have a genuinely buggy dependency
+# resolver that can crash with a bare KeyError on retried/interrupted fetches.
+- name: Upgrade pip in the virtual environment
+  ansible.builtin.pip:
+    name: pip
+    state: latest
+    virtualenv: "{{ venv_dir }}"
+  become_user: "{{ app_user }}"
+
+- name: Install Python dependencies from requirements.txt
+  ansible.builtin.pip:
+    requirements: "{{ app_dir }}/requirements.txt"
+    virtualenv: "{{ venv_dir }}"
+  become_user: "{{ app_user }}"
+  notify: restart gunicorn
+
+- name: Install Gunicorn in the virtual environment
+  ansible.builtin.pip:
+    name: gunicorn
+    virtualenv: "{{ venv_dir }}"
+  become_user: "{{ app_user }}"
+
+- name: Deploy environment configuration file
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ app_dir }}/.env"
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: "0600"
+  notify: restart gunicorn
+
+- name: Deploy Gunicorn systemd service file
+  ansible.builtin.template:
+    src: gunicorn.service.j2
+    dest: /etc/systemd/system/{{ app_name }}.service
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart gunicorn
+
+- name: Enable and start Gunicorn service
+  ansible.builtin.systemd:
+    name: "{{ app_name }}"
+    daemon_reload: true
+    enabled: true
+    state: started
+
+- name: Deploy nginx vhost
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/sites-available/{{ app_name }}
+    mode: "0644"
+  notify: reload nginx
+
+- name: Enable nginx site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/{{ app_name }}
+    dest: /etc/nginx/sites-enabled/{{ app_name }}
+    state: link
+  notify: reload nginx

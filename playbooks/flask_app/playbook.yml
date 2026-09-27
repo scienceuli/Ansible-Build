@@ -1,0 +1,16 @@
+---
+- name: Deploy flask_info to raspizero
+  hosts: raspizero
+  become: true
+  pre_tasks:
+    - name: Configure passwordless sudo for {{ ansible_user }}
+      ansible.builtin.copy:
+        content: "{{ ansible_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        dest: "/etc/sudoers.d/{{ ansible_user }}-nopasswd"
+        owner: root
+        group: root
+        mode: "0440"
+        validate: "visudo -cf %s"
+  roles:
+    - nginx
+    - flask_app

@@ -1,0 +1,13 @@
+---
+- name: Update apt cache
+  changed_when: True == False
+  apt:
+    update_cache: yes
+- name: Install LaTeX packages
+  apt:
+    name:
+      - texlive-latex-base
+    state: present
+- name: clean up unused packages
+  apt:
+    autoremove: yes

@@ -20,4 +20,4 @@ mosquitto_ssl_key: "{{ mosquitto_cert_dir }}/privkey.pem"
 mosquitto_local_port: 1883
 
 mosquitto_user: "homebox"
-# mosquitto_password: required, set via ansible-vault (see inventories/dirac/host_vars/dirac/vault.yml)
+# mosquitto_password: required, set via ansible-vault (see inventories/host_vars/dirac/vault.yml)

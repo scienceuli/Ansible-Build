@@ -1,0 +1,4 @@
+- hosts: noether
+  become: true
+  roles:
+     - latex

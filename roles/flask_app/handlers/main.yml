@@ -1,0 +1,14 @@
+---
+- name: reload systemd
+  systemd:
+    daemon_reload: yes
+
+- name: restart gunicorn
+  systemd:
+    name: "{{ app_name }}"
+    state: restarted
+
+- name: reload nginx
+  systemd:
+    name: nginx
+    state: reloaded

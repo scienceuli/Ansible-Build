@@ -10,7 +10,7 @@ Two independent services on `dirac`, both fronted by nginx on the same host:
     ansible-galaxy collection install -r requirements.yml
 
 Set the real domains and Let's Encrypt contact address in
-`inventories/dirac/host_vars/dirac/vars.yml` (plaintext, committed):
+`inventories/host_vars/dirac/vars.yml` (plaintext, committed):
 
     homebox_domain: "homebox.sam-projekte.de"
     nextcloud_domain: "cloud.homebox.sam-projekte.de"
@@ -19,13 +19,13 @@ Set the real domains and Let's Encrypt contact address in
     nextcloud_admin_password: "{{ vault_nextcloud_admin_password }}"
 
 Nextcloud credentials (HomeBox needs none) live in the sibling
-`inventories/dirac/host_vars/dirac/vault.yml`, which is
+`inventories/host_vars/dirac/vault.yml`, which is
 `ansible-vault` encrypted and referenced by the `vault_*` names above:
 
     vault_nextcloud_db_password: "..."
     vault_nextcloud_admin_password: "..."
 
-To edit it: `ansible-vault edit inventories/dirac/host_vars/dirac/vault.yml`.
+To edit it: `ansible-vault edit inventories/host_vars/dirac/vault.yml`.
 Both files sit in the same `host_vars/dirac/` directory, so Ansible merges
 them automatically.
 
@@ -36,7 +36,7 @@ is needed on any command.
 
 ## Run
 
-    ansible-playbook -i inventories/dirac playbooks/homebox/playbook.yml
+    ansible-playbook -i inventories playbooks/homebox/playbook.yml
 
 ## TLS / Let's Encrypt
 

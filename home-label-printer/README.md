@@ -26,8 +26,8 @@ managed by Ansible.
 - Broker: `mqtt.sam-projekte.de:8883` (TLS)
 - Topic: `homebox/labels`
 - User: `homebox`
-- Password: `vault_mosquitto_password` in `inventories/dirac/host_vars/dirac/vault.yml`
-  (`ansible-vault view inventories/dirac/host_vars/dirac/vault.yml` to read it)
+- Password: `vault_mosquitto_password` in `inventories/host_vars/dirac/vault.yml`
+  (`ansible-vault view inventories/host_vars/dirac/vault.yml` to read it)
 
 ## What's here
 
@@ -192,7 +192,7 @@ mosquitto_pub -h mqtt.sam-projekte.de -p 8883 -u homebox -P '<password>' \
 - **Image width limit**: NiimPrintX asserts the (post-rotation) image width
   is `<= 240px` for D110/D110_M. Homebox renders labels at 320x96 (landscape,
   per the `HBOX_LABEL_MAKER_WIDTH`/`HEIGHT` vars in
-  `inventories/dirac/host_vars/dirac/vars.yml`), so it must be rotated 90°
+  `inventories/host_vars/dirac/vars.yml`), so it must be rotated 90°
   before printing (320x96 -> 96x320, well under the limit). `subscriber.py`
   does this automatically via `LABEL_PRINTER_ROTATE` (default `90`) - if you
   change Homebox's label dimensions, you may need to revisit this.

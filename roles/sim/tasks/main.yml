@@ -1,0 +1,108 @@
+---
+# roles/sim/tasks/main.yml
+
+- name: Ensure required variables are set
+  ansible.builtin.assert:
+    that:
+      - sim_git_repo is defined
+      - sim_allowed_hosts is defined
+      - sim_secret_key is defined
+    fail_msg: >
+      sim_git_repo, sim_allowed_hosts and sim_secret_key must be set
+      (sim_secret_key via an ansible-vault-encrypted host_vars file).
+
+- name: Install git and the ssh client
+  ansible.builtin.apt:
+    name:
+      - git
+      - openssh-client
+    state: present
+    update_cache: true
+
+- name: Ensure compose directory exists
+  ansible.builtin.file:
+    path: "{{ sim_compose_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Ensure data directory exists (writable by the container user)
+  ansible.builtin.file:
+    path: "{{ sim_data_dir }}"
+    state: directory
+    owner: "{{ sim_container_uid }}"
+    group: "{{ sim_container_uid }}"
+    mode: "0750"
+
+- name: Generate deploy key for the private repo
+  ansible.builtin.command:
+    argv:
+      - ssh-keygen
+      - -t
+      - ed25519
+      - -N
+      - ""
+      - -C
+      - "sim-deploy@{{ inventory_hostname }}"
+      - -f
+      - "{{ sim_deploy_key_path }}"
+    creates: "{{ sim_deploy_key_path }}"
+
+- name: Read deploy public key
+  ansible.builtin.slurp:
+    src: "{{ sim_deploy_key_path }}.pub"
+  register: sim_deploy_pubkey
+
+- name: Ensure root's .ssh directory exists
+  ansible.builtin.file:
+    path: /root/.ssh
+    state: directory
+    mode: "0700"
+
+- name: Trust the git host's SSH host key
+  ansible.builtin.known_hosts:
+    path: /root/.ssh/known_hosts
+    name: "{{ sim_git_host }}"
+    key: "{{ sim_git_host_key }}"
+
+# Customer data and the live DB are not in the repo: the DB is seeded once
+# below and then lives only in sim_data_dir.
+- name: Clone / update SIM source
+  block:
+    - name: Fetch SIM from git
+      ansible.builtin.git:
+        repo: "{{ sim_git_repo }}"
+        dest: "{{ sim_src_dir }}"
+        version: "{{ sim_git_version }}"
+        key_file: "{{ sim_deploy_key_path }}"
+      register: sim_source_sync
+  rescue:
+    - name: Explain how to authorize the deploy key
+      ansible.builtin.fail:
+        msg: >
+          Could not fetch {{ sim_git_repo }}. If this is the first run, add the
+          following public key as a read-only Deploy key on the repository
+          (GitHub: Settings > Deploy keys), then re-run:
+          {{ sim_deploy_pubkey.content | b64decode | trim }}
+
+- name: Seed initial database (only if none exists yet)
+  ansible.builtin.copy:
+    src: "{{ sim_initial_db }}"
+    dest: "{{ sim_data_dir }}/db.sqlite3"
+    owner: "{{ sim_container_uid }}"
+    group: "{{ sim_container_uid }}"
+    mode: "0640"
+    force: false
+  when: sim_initial_db | length > 0
+
+- name: Deploy docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ sim_compose_dir }}/docker-compose.yml"
+    mode: "0640"          # contains the Django secret key and SMTP credentials
+  register: sim_compose_file
+
+- name: Build and (re)start SIM via docker compose
+  community.docker.docker_compose_v2:
+    project_src: "{{ sim_compose_dir }}"
+    state: present
+    build: "{{ 'always' if (sim_source_sync.changed or sim_compose_file.changed) else 'policy' }}"
