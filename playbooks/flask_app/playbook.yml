@@ -1,6 +1,6 @@
 ---
-- name: Deploy flask_info to raspizero
-  hosts: raspizero
+- name: Deploy flask_info to Raspberry Pi hosts
+  hosts: raspberry
   become: true
   pre_tasks:
     - name: Configure passwordless sudo for {{ ansible_user }}

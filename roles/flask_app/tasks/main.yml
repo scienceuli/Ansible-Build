@@ -33,13 +33,54 @@
       - libjpeg62-turbo
       - zlib1g
       - libopenjp2-7
-      - libtiff5
+      # Package suffix bumped between Debian 11 (bullseye, e.g. raspizero)
+      # and Debian 13 (trixie, e.g. raspitwo) - verified against apt-cache
+      # policy on each, not guessed.
+      - "libtiff{{ '5' if ansible_distribution_major_version == '11' else '6' }}"
       - libfreetype6
       - liblcms2-2
-      - libwebp6
+      - "libwebp{{ '6' if ansible_distribution_major_version == '11' else '7' }}"
+      # render_display.py loads /usr/share/fonts/truetype/dejavu/*.ttf and
+      # silently falls back to Pillow's tiny bitmap font if they're missing
+      # (not installed on a Lite image, e.g. raspitwo).
+      - fonts-dejavu-core
     state: present
     update_cache: true
     cache_valid_time: 3600
+
+# Bookworm and later (e.g. raspitwo) read /boot/firmware/config.txt;
+# /boot/config.txt there is only a leftover stub the firmware ignores.
+- name: Locate the firmware config.txt
+  ansible.builtin.stat:
+    path: /boot/firmware/config.txt
+  register: app_firmware_config
+  when: waveshare_display_enabled | default(false)
+
+- name: Enable SPI (Waveshare e-Paper HAT uses it) via config.txt
+  ansible.builtin.lineinfile:
+    path: "{{ '/boot/firmware/config.txt' if app_firmware_config.stat.exists else '/boot/config.txt' }}"
+    regexp: "^#?\\s*dtparam=spi="
+    line: "dtparam=spi=on"
+  register: app_spi_config
+  when: waveshare_display_enabled | default(false)
+
+- name: Reboot if SPI was just enabled (required before /dev/spidev* appears)
+  ansible.builtin.reboot:
+    reboot_timeout: 120
+  when: app_spi_config is changed
+
+# /dev/spidev* and /dev/gpiochip0 are group-owned spi/gpio, not world-accessible.
+# The wiki's manual demo runs as `pi` (a member of both by default on Raspberry
+# Pi OS); gunicorn runs as app_user, which isn't in either group otherwise.
+- name: Add app_user to spi and gpio groups (Waveshare e-Paper HAT access)
+  ansible.builtin.user:
+    name: "{{ app_user }}"
+    groups:
+      - spi
+      - gpio
+    append: true
+  when: waveshare_display_enabled | default(false)
+  notify: restart gunicorn
 
 - name: Create application directory
   ansible.builtin.file:
@@ -127,6 +168,18 @@
     requirements: "{{ app_dir }}/requirements.txt"
     virtualenv: "{{ venv_dir }}"
   become_user: "{{ app_user }}"
+  notify: restart gunicorn
+
+# Without a pin backend in the venv, gpiozero falls back to its NativeFactory
+# (legacy /sys/class/gpio), which newer kernels (e.g. trixie on raspitwo)
+# reject with "OSError: [Errno 22] Invalid argument" on export. The system
+# python has python3-lgpio from apt, which is why the wiki demos still work.
+- name: Install lgpio (gpiozero pin backend) in the virtual environment
+  ansible.builtin.pip:
+    name: lgpio
+    virtualenv: "{{ venv_dir }}"
+  become_user: "{{ app_user }}"
+  when: waveshare_display_enabled | default(false)
   notify: restart gunicorn
 
 - name: Install Gunicorn in the virtual environment
