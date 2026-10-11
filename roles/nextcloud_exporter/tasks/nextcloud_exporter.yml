@@ -1,0 +1,39 @@
+---
+- name: Ensure nginx data dir exists
+  ansible.builtin.file:
+    path: "{{ nextcloud_exporter_nginx_data_dir }}"
+    state: directory
+
+- name: Gather package facts
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Fail if package {{ nextcloud_exporter_requires_package }} is not installed
+  ansible.builtin.fail:
+    msg: Package {{ nextcloud_exporter_requires_package }} is not installed!
+  when: nextcloud_exporter_requires_package not in ansible_facts.packages
+
+- name: Configure user access for {{ role_name }}
+  community.general.htpasswd:
+    path: "{{ nextcloud_exporter_nginx_data_dir }}/nextcloud-exporter.htpasswd"
+    name: "{{ nextcloud_exporter_basic_auth_username }}"
+    password: "{{ nextcloud_exporter_basic_auth_password }}"
+
+- name: Copy {{ role_name }} nginx config
+  ansible.builtin.template:
+    src: nextcloud-exporter.nginx
+    dest: "{{ nextcloud_exporter_nginx_data_dir }}/nextcloud-exporter.nginx"
+
+- name: Start {{ role_name }} container {{ nextcloud_exporter_hostname }}
+  community.docker.docker_container:
+    name: "{{ nextcloud_exporter_hostname }}"
+    labels:
+      description: "{{ nextcloud_exporter_description }}"
+    image: "{{ nextcloud_exporter_image }}"
+    restart_policy: unless-stopped
+    env:
+      NEXTCLOUD_SERVER: "{{ nextcloud_exporter_server }}"
+      NEXTCLOUD_USERNAME: "{{ nextcloud_exporter_username }}"
+      NEXTCLOUD_PASSWORD: "{{ nextcloud_exporter_password }}"
+    networks:
+      - name: "{{ docker_network_name }}"

@@ -1,0 +1,71 @@
+---
+# roles/eventmanager/defaults/main.yml
+#
+# VFLL Eventmanager (Django) as docker compose stack: web (gunicorn),
+# mailqueue (sends queued mails), mjml (TCP server for MJML mails) and
+# Postgres. The nginx container (roles nginx/certbot, configured on the
+# docker host via nginx_proxies) terminates TLS, proxies to eventmanager-web
+# over the shared docker network and serves /static/ and /media/ from the
+# bind-mounted data dir.
+
+# Required, set in host_vars (no sane default):
+#   eventmanager_domain       - public FQDN, e.g. faraday.science-and-more.com
+#   eventmanager_network      - docker network shared with the nginx container
+#                               (the docker host's docker_network_name)
+#   eventmanager_secret_key   - Django SECRET_KEY (vault it)
+#   eventmanager_encrypt_key  - Fernet key for newsletter tokens (vault it)
+#   eventmanager_db_password  - Postgres password (vault it)
+
+eventmanager_git_repo: "https://github.com/scienceuli/eventmanager.git"
+eventmanager_git_version: "main"
+
+eventmanager_compose_dir: "/opt/docker/eventmanager"
+eventmanager_src_dir: "{{ eventmanager_compose_dir }}/src"
+# Mounted at /data: static/, media/, private/, sent_emails/
+eventmanager_data_dir: "{{ eventmanager_compose_dir }}/data"
+eventmanager_db_data_dir: "{{ eventmanager_compose_dir }}/db-data"
+
+# Must match the `app` user created in the Dockerfile
+eventmanager_container_uid: 1000
+eventmanager_restart_policy: "unless-stopped"
+eventmanager_gunicorn_workers: 3
+
+eventmanager_db_image: "postgres:16-alpine"
+eventmanager_db_name: "eventmanager"
+eventmanager_db_user: "eventmanager"
+
+eventmanager_mjml_image: "liminspace/mjml-tcpserver:1.4"
+
+eventmanager_debug: false
+eventmanager_use_2fa: false
+eventmanager_log_level: "INFO"
+
+# Mail: the file backend writes mails to {{ eventmanager_data_dir }}/sent_emails
+# instead of sending them - the safe default for development hosts. Set
+# "django.core.mail.backends.smtp.EmailBackend" plus the SMTP vars to send.
+eventmanager_email_backend: "django.core.mail.backends.filebased.EmailBackend"
+eventmanager_email_host: ""
+eventmanager_email_port: 587
+eventmanager_email_use_tls: true
+eventmanager_email_host_user: ""
+eventmanager_email_host_password: ""
+
+eventmanager_paypal_enabled: false
+eventmanager_paypal_test: true
+eventmanager_paypal_receiver_email: ""
+
+# Optional integrations, empty = disabled
+eventmanager_mailgun_api_key: ""
+eventmanager_mailgun_url: ""
+eventmanager_member_admin_url: ""
+eventmanager_member_admin_token_url: ""
+eventmanager_member_admin_user: ""
+eventmanager_member_admin_secret: ""
+eventmanager_invoice_ninja_base_url: ""
+eventmanager_invoice_ninja_api_key: ""
+
+# Any further env vars for eventmanager.container_settings
+eventmanager_extra_env: {}
+
+# TLS is terminated by the nginx container; only used for SITE_URL.
+eventmanager_enable_ssl: true

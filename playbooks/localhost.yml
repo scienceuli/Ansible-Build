@@ -1,0 +1,79 @@
+---
+- name: Localhost setup
+  hosts: localhost
+  connection: local
+  roles:
+    - role: docker_network
+      tags: docker_network
+    - role: resolv
+      tags: resolv
+    - role: odoo
+      tags: odoo
+    - role: odoo_apps
+      tags: odoo_apps
+    - role: iam
+      tags: iam
+    - role: cleanup
+      tags: cleanup
+    - role: meilisync
+      tags: meilisync
+    - role: meilisearch
+      tags: meilisearch
+    - role: meilisearch_client
+      tags: meilisearch_client
+    - role: packages
+      tags: packages
+    - role: postgres
+      tags: postgres
+    - role: cargo
+      tags: cargo
+    - role: innernet
+      tags: innernet
+    - role: maintenance
+      tags: maintenance
+    - role: rabbitmq
+      tags: rabbitmq
+    - role: caddy
+      tags: caddy
+    - role: pgadmin
+      tags: pgadmin
+    - role: vercel
+      tags: vercel
+    - role: infomaniak
+      tags: infomaniak
+    - role: docker_hosts
+      tags: docker_hosts
+    - role: etc_hosts
+      tags: etc_hosts
+    - role: n8n
+      tags: n8n
+    - role: crowdsec
+      tags: crowdsec
+    - role: metabase
+      tags: metabase
+    - role: node_exporter
+      tags: node_exporter
+    - role: prometheus
+      tags: prometheus
+    - role: loki
+      tags: loki
+    - role: promtail
+      tags: promtail
+    - role: grafana
+      tags: grafana
+    - role: nginx
+      tags: nginx
+    - role: s3cmd
+      tags: s3cmd
+    - role: docker_compose
+      tags: docker_compose
+    - role: firehol
+      tags: firehol
+    - role: keycloak
+      tags: keycloak
+    - role: open_webui
+      tags: open_webui
+    - role: pgbouncer
+      tags: pgbouncer
+    - role: onlyoffice_documentserver
+      tags: onlyoffice_documentserver

@@ -1,0 +1,5 @@
+---
+netcup_api_url: https://ccp.netcup.net/run/webservice/servers/endpoint.php?JSON
+netcup_customer_number: "{{ vault_netcup_customer_number }}"
+netcup_api_key: "{{ vault_netcup_api_key }}"
+netcup_api_password: "{{ vault_netcup_api_password }}"

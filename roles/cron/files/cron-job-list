@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -e
+
+script=$(basename "$0")
+version="1.0.0"
+
+help() {
+  echo
+  echo "$script"
+  echo
+  echo 'Description: List jobs from crontab managed by Ansible.'
+  echo "Syntax: $script [-u|-V|help]"
+  echo 'Example: $script -u root'
+  echo 'options:'
+  echo '  -u    Specify username of crontab.'
+  echo "  -V    Show $script version."
+  echo "  help  Show $script manual."
+  echo
+}
+
+if [[ "$1" == 'help' ]]; then
+    help
+    exit
+fi
+
+: ${CRONTAB_USERNAME:="$USERNAME"}
+: ${CRONTAB_USERNAME:=$(whoami)}
+
+while getopts ":u: :V" opt; do
+  case $opt in
+    u) CRONTAB_USERNAME="$OPTARG";;
+    V) echo "$script version $version"
+    exit 0
+    ;;
+    \?) echo "Invalid option -$OPTARG" >&2
+    help
+    exit 1;;
+  esac
+done
+
+crontab -u "$CRONTAB_USERNAME" -l | awk '
+  BEGIN { job_num = 1 }
+  /^#Ansible: / {
+    # Capture the full job name (everything after "#Ansible: ")
+    sub(/^#Ansible: /, "", $0);
+    job_name = $0;
+    getline;
+    print "[" job_num "]", $1, $2, $3, $4, $5, job_name;
+    job_num++;
+  }
+'

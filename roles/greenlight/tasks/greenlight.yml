@@ -1,0 +1,58 @@
+---
+- name: Get BigBlueButton API secret
+  ansible.builtin.shell: "bbb-conf --secret | grep 'Secret: ' | sed 's/^ *Secret:\\s//g'"
+  register: bbb_install_api_secret
+  changed_when: false
+
+- name: Start greenlight container {{ greenlight_hostname }}
+  community.docker.docker_container:
+    name: "{{ greenlight_hostname }}"
+    labels:
+      description: "{{ greenlight_description }}"
+    image: "{{ greenlight_image }}"
+    restart_policy: unless-stopped
+    env:
+      SECRET_KEY_BASE: "{{ vault_greenlight_secret_key_base }}"
+      BIGBLUEBUTTON_ENDPOINT: "{{ bbb_install_api_url }}"
+      BIGBLUEBUTTON_SECRET: "{{ bbb_install_api_secret.stdout }}"
+      SAFE_HOSTS: "{{ greenlight_safe_hosts }}"
+      DB_ADAPTER: "{{ greenlight_db_adapter }}"
+      DB_HOST: "{{ greenlight_db_host }}"
+      DB_PORT: "{{ greenlight_db_port }}"
+      DB_NAME: "{{ greenlight_db_name }}"
+      DB_USERNAME: "{{ greenlight_db_username }}"
+      DB_PASSWORD: "{{ greenlight_db_password }}"
+      SMTP_SERVER: "{{ greenlight_smtp_server }}"
+      SMTP_PORT: "{{ greenlight_smtp_port }}"
+      SMTP_DOMAIN: "{{ greenlight_smtp_domain }}"
+      SMTP_USERNAME: "{{ greenlight_smtp_username }}"
+      SMTP_PASSWORD: "{{ greenlight_smtp_password }}"
+      SMTP_AUTH: "{{ greenlight_smtp_auth }}"
+      SMTP_STARTTLS_AUTO: "true"
+      SMTP_SENDER: "{{ greenlight_smtp_sender }}"
+      DEFAULT_REGISTRATION: "{{ greenlight_default_registration }}"
+      ALLOW_GREENLIGHT_ACCOUNTS: "{{ greenlight_allow_greenlight_accounts }}"
+      ROOM_FEATURES: "{{ greenlight_room_features }}"
+      ALLOW_MAIL_NOTIFICATIONS: "{{ greenlight_allow_mail_notifications }}"
+    ports:
+      - "{{ greenlight_port }}:80"
+    networks:
+      - name: "{{ docker_network_name }}"
+  register: start_greenlight_contaner
+
+- name: Copy greenlight nginx conf
+  ansible.builtin.copy:
+    src: greenlight.nginx
+    dest: /etc/bigbluebutton/nginx/greenlight.nginx
+  notify: Restart BigBlueButton services
+
+- name: Wait for greenlight container # noqa 503
+  ansible.builtin.pause:
+    seconds: "5"
+  when: start_greenlight_contaner.changed
+
+- name: Create greenlight admin user
+  ansible.builtin.command: docker exec "{{ greenlight_hostname }}" \ bundle exec rake user:create["admin","{{ greenlight_admin_email }}","{{
+    greenlight_admin_password }}","admin"]
+  register: greenlight_admin
+  changed_when: "'Account with that email already exists' not in greenlight_admin.stdout"

@@ -78,7 +78,7 @@
 
     - name: Obtain Let's Encrypt certificate
       ansible.builtin.include_role:
-        name: certbot
+        name: certbot_host
       vars:
         certbot_domain: "{{ nextcloud_domain }}"
         certbot_webroot: "{{ nextcloud_acme_challenge_root }}"

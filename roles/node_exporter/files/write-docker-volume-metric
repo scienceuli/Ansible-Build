@@ -1,0 +1,41 @@
+#!/bin/bash
+
+SCRIPT=$(basename "$0")
+
+Help() {
+  echo
+  echo "$SCRIPT"
+  echo
+  echo "Description: Write metric node_directory_size_bytes for Docker volumes."
+  echo "Syntax: $SCRIPT"
+  echo "Example: $SCRIPT"
+  echo "options:"
+  echo "  help  Show $SCRIPT manual."
+  echo
+}
+
+if [[ "$1" == "help" ]]; then
+    Help
+    exit
+fi
+
+echo "Write metric node_directory_size_bytes for Docker volumes."
+
+cat << EOF >> /var/tmp/node_directory_size_bytes.prom.$$
+# HELP node_directory_size_bytes Disk space used by some directories
+# TYPE node_directory_size_bytes gauge
+EOF
+
+# Get Docker data directory from daemon.json or use default
+docker_data_dir=$(docker info -f '{{.DockerRootDir}}' 2>/dev/null)
+if [[ -z "$docker_data_dir" || "$docker_data_dir" == "<no value>" ]]; then
+    # Default to /var/lib/docker if docker info fails
+    docker_data_dir="/var/lib/docker"
+fi
+
+for dir in "$docker_data_dir"/volumes/*/
+do
+    du -s "$dir" --block-size=1 | sed -E 's;([0-9]*).*\s(\/.*\/([^/]*))\/$;node_directory_size_bytes{directory="\2",volume="\3"} \1;g' >> /var/tmp/node_directory_size_bytes.prom.$$
+done
+
+mv /var/tmp/node_directory_size_bytes.prom.$$ /var/tmp/node_directory_size_bytes.prom

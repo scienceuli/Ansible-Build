@@ -1,0 +1,6 @@
+---
+wordpress_build_image: false
+wordpress_description: WordPress
+wordpress_volume_name: "{{ wordpress_hostname }}"
+wordpress_db_password: "{{ vault_wordpress_db_password }}"
+wordpress_data_dir: /usr/share/{{ wordpress_hostname }}

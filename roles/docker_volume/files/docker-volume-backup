@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -e
+
+script=$(basename "$0")
+version="1.0.1"
+
+help() {
+    echo
+    echo "$script"
+    echo
+    echo 'Description: Backup docker volumes.'
+    echo "Syntax: $script [-c|-a|-v|-e|-o|-V|help]"
+    echo 'Example: $script -c jenkins -v jenkins_data01 -e workspace -o /tmp '
+    echo 'options:'
+    echo "  -c    Docker container name."
+    echo '  -a    Backup all volumes.'
+    echo '  -v    Comma-separated list of volume names.'
+    echo "  -o    Output directory. Defaults to '/var/tmp'"
+    echo '  -e    Exclude option for tar command.'
+    echo "  -V    Show $script version."
+    echo "  help  Show $script manual."
+    echo
+}
+
+if [[ "$1" == 'help' ]]; then
+    help
+    exit
+fi
+
+all='false'
+dir=/var/tmp
+
+while getopts ":c: :a :v: :e: :o: :V" opt; do
+    case $opt in
+        c) container="$OPTARG"
+        ;;
+        a) all='true'
+        ;;
+        v) volumes="$OPTARG"
+        ;;
+        e) exclude="$OPTARG"
+        ;;
+        o) dir="$OPTARG"
+        ;;
+        V) echo "$script version $version"
+        exit 0
+        ;;
+        \?) echo "Invalid option -$OPTARG" >&2
+        help
+        exit 1;;
+    esac
+done
+
+[[ -z "$volumes" ]] && [[ -z "$all" ]] && { echo 'Parameter -v|volumes or -a|all must be set.' ; exit 1; }
+[[ -z "$dir" ]] && { echo 'Parameter -d|dir is empty.' ; exit 1; }
+[[ -z "$container" ]] && { echo 'Parameter -c|container is empty.' ; exit 1; }
+
+if $all; then
+    volume_list=$(docker inspect -f '{{ range .Mounts }}{{ .Name }}{{ end }}' "$container")
+
+    printf -v volumes '%s,' "${volume_list[@]}"
+    volumes="${volumes%,}"
+fi
+
+if [[ -n $volumes ]] ; then
+    volume_list=($(echo $volumes | tr ',' '\n'))
+fi
+
+mkdir -p "${dir}/${container}"
+
+rm -rf ${dir:?}/"${container}"/*
+
+echo "Make sure to stop the container $container before creating a backup."
+
+for volume in "${volume_list[@]}"; do
+    if [[ -n "$exclude" ]]; then
+        echo "Run backup for Docker volume $volume with the exclude option."
+        rm -f "${dir}/${container}/${volume}.tar"
+        docker run --rm -v "$volume:/_data" -v "${dir}/${container}:/backup" ubuntu tar --exclude="$exclude" --warning=no-file-changed -cf "/backup/$volume.tar" /_data
+    else
+        echo "Run backup for Docker volume $volume."
+        rm -f "${dir}/${container}/${volume}.tar"
+        docker run --rm -v "$volume:/_data" -v "${dir}/${container}:/backup" ubuntu tar --warning=no-file-changed -cf "/backup/$volume.tar" /_data
+    fi
+done
+
+echo "Docker volume backup has finished: ${dir}/${container}/{$volumes}.tar"

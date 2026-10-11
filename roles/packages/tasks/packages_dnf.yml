@@ -1,0 +1,20 @@
+---
+- name: Enable dnf repos
+  ansible.builtin.dnf:
+    name: "{{ item.name }}"
+    state: present
+  loop: "{{ dnf_repos }}"
+
+- name: Install latest packages
+  ansible.builtin.dnf:
+    name: "{{ item.name }}"
+    state: present
+  loop: "{{ group_packages }}"
+  when: item.version is not defined
+
+- name: Install versioned packages
+  ansible.builtin.dnf:
+    name: "{{ item.name }}-{{ item.version }}"
+    state: present
+  loop: "{{ group_packages }}"
+  when: item.version is defined

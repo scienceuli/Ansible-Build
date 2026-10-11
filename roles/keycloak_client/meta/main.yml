@@ -1,0 +1,6 @@
+---
+dependencies:
+  - role: keycloak
+    tags:
+      - keycloak
+      - depends

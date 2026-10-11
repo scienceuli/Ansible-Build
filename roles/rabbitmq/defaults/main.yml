@@ -1,0 +1,8 @@
+---
+rabbitmq_build_image: false
+rabbitmq_description: RabbitMQ
+rabbitmq_volume_name: "{{ rabbitmq_hostname }}"
+rabbitmq_data_dir: /usr/share/{{ rabbitmq_hostname }}
+rabbitmq_password: "{{ vault_rabbitmq_password }}"
+rabbitmq_ports:
+  - 127.0.0.1:5672:5672

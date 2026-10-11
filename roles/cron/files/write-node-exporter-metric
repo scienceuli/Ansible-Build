@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+
+script=$(basename "$0")
+version="1.0.0"
+
+help() {
+    echo
+    echo "$script"
+    echo
+    echo 'Description: Write node-exporter metric.'
+    echo 'Syntax: write-node-exporter-metric [-n|-c|-v|-V|help]'
+    echo 'Example: write-node-exporter-metric -n cron_job -c "Renew certs for nginx01" -v 0'
+    echo 'options:'
+    echo '  -n    Reference of custom metric type. Defaults to '\''cron_job'\''.'
+    echo '  -c    Code for metric value.'
+    echo '  -v    Metric value.'
+    echo "  -V    Show $script version."
+    echo "  help  Show $script manual."
+    echo
+}
+
+if [[ "$1" == 'help' ]]; then
+    help
+    exit
+fi
+
+type=cron_job
+
+while getopts ':n :c: :v: :V' opt; do
+  case $opt in
+    n) type="$OPTARG"
+    ;;
+    c) code="$OPTARG"
+    ;;
+    v) value="$OPTARG"
+    ;;
+    V) echo "$script version $version"
+    exit 0
+    ;;
+    \?) echo "Invalid option -$OPTARG" >&2
+    help
+    exit 1;;
+  esac
+done
+
+[[ -z "$code" ]] && { echo 'Parameter -c|code is empty.' ; exit 1; }
+[[ -z "$value" ]] && { echo 'Parameter -v|value is empty.' ; exit 1; }
+
+if [[ "$type" == 'cron_job' ]]; then
+    echo "Write metric node_cron_job_exit_code for code \"$code\" with value $value."
+    id=$(echo $code | sha1sum | cut -c1-5)
+
+    cat << EOF >> /var/tmp/node_cron_job_exit_code.$id.prom.$$
+# HELP node_cron_job_exit_code Last exit code of cron job.
+# TYPE node_cron_job_exit_code counter
+node_cron_job_exit_code{code="$code"} $value
+EOF
+    mv /var/tmp/node_cron_job_exit_code.$id.prom.$$ /var/tmp/node_cron_job_exit_code.$id.prom
+fi

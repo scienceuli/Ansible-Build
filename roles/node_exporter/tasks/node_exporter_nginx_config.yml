@@ -1,0 +1,25 @@
+---
+- name: Ensure nginx data dir exists
+  ansible.builtin.file:
+    path: "{{ node_exporter_nginx_data_dir }}"
+    state: directory
+
+- name: Gather package facts
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Fail if package {{ node_exporter_requires_package }} is not installed
+  ansible.builtin.fail:
+    msg: Package {{ node_exporter_requires_package }} is not installed!
+  when: node_exporter_requires_package not in ansible_facts.packages
+
+- name: Configure user access for {{ role_name }}
+  community.general.htpasswd:
+    path: "{{ node_exporter_nginx_data_dir }}/node-exporter.htpasswd"
+    name: "{{ node_exporter_basic_auth_username }}"
+    password: "{{ node_exporter_basic_auth_password }}"
+
+- name: Copy {{ role_name }} nginx config
+  ansible.builtin.template:
+    src: node-exporter.nginx
+    dest: "{{ node_exporter_nginx_data_dir }}/node-exporter.nginx"

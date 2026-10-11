@@ -1,0 +1,13 @@
+---
+# DNS records at netcup (netcup_dns in group_vars/setup). Only talks to the
+# netcup API, so it runs on localhost without root. The inventory sets
+# ansible_become: true on localhost, and that variable would beat a plain
+# `become: false` play keyword - play vars override it.
+- name: Manage netcup DNS
+  hosts: localhost
+  gather_facts: false
+  vars:
+    ansible_become: false
+  roles:
+    - role: netcup
+      tags: netcup

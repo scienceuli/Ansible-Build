@@ -1,0 +1,48 @@
+---
+- name: Server setup
+  hosts: setup
+  roles:
+    - role: update
+      tags:
+        - update
+        - never
+    - role: packages
+      tags: packages
+    - role: motd
+      tags: motd
+    - role: etc_hosts
+      tags: etc_hosts
+    - role: timezone
+      tags: timezone
+    - role: resolv
+      tags: resolv
+    - role: fstab
+      tags: fstab
+    - role: cron
+      tags: cron
+    - role: locale
+      tags: locale
+    - role: cargo
+      tags: cargo
+    - role: kernel
+      tags: kernel
+    - role: maintenance
+      tags: maintenance
+    - role: firehol
+      tags: firehol
+    - role: restic
+      tags: restic
+    - role: innernet
+      tags: innernet
+    - role: rclone
+      tags: rclone
+    - role: docker_network
+      tags: docker_network
+    - role: docker_compose
+      tags: docker_compose
+    - role: k3s
+      tags: k3s
+    - role: ufw
+      tags: ufw
+    - role: iam
+      tags: iam

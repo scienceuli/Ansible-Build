@@ -1,0 +1,69 @@
+---
+- name: Gather package facts
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Fail if package is not installed
+  ansible.builtin.fail:
+    msg: Package {{ item }} is not installed!
+  when: item not in ansible_facts.packages
+  loop:
+    - innernet-server
+
+- name: Setup innernet server
+  ansible.builtin.command:
+    cmd: >-
+      innernet-server new --network-name {{ innernet_server_network_name }} --network-cidr {{ innernet_server_network_cidr }}
+      --auto-external-endpoint --listen-port 51820
+    creates: /etc/innernet-server/{{ innernet_server_network_name }}.conf
+
+- name: Setup innernet server cidrs
+  ansible.builtin.command:
+    cmd: innernet-server add-cidr --name {{ item.name }} --cidr {{ item.cidr }} --parent {{ item.parent }} --yes {{ innernet_server_network_name }}
+  register: res
+  changed_when: res.rc==0
+  ignore_errors: true # FIXME: Cannot check if command added cidr
+  loop: "{{ innernet_server_cidrs }}"
+
+- name: Setup innernet server peers
+  ansible.builtin.command:
+    cmd: >-
+      innernet-server add-peer --name {{ item.name }} --cidr {{ item.cidr }} --auto-ip --admin true
+      --save-config /var/tmp/{{ item.name }}.yml --invite-expires 14d --yes {{ innernet_server_network_name }}
+    creates: /var/tmp/{{ item.name }}.yml
+  loop: "{{ innernet_server_peers }}"
+
+- name: Fetch server peer invitation files
+  ansible.builtin.fetch:
+    src: /var/tmp/{{ item.name }}.yml
+    dest: /var/tmp/
+    flat: true
+  loop: "{{ innernet_server_peers }}"
+
+- name: Enable innernet server service
+  ansible.builtin.systemd:
+    name: innernet-server@{{ innernet_server_network_name }}"
+    state: restarted
+
+- name: Check if invitation file exists and is not empty
+  stat:
+    path: "/var/tmp/{{ item.name }}.yml"
+  register: file_stat
+  loop: "{{ innernet_server_peers }}"
+
+- name: Setup resolv hosts list with IP extraction
+  set_fact:
+    resolv_hosts: "{{ resolv_hosts | default([]) + [{'name': item.item.name + '.' + docker_network_name, 'ip': lookup('ini', 'address section=interface file=/var/tmp/'
+      + item.item.name + '.yml')  | regex_replace('\"', '') | regex_replace('/.+$', '')}] }}"
+  loop: "{{ file_stat.results }}"
+  when: item.stat.exists and item.stat.size > 0
+
+- name: Debug
+  debug:
+    var: resolv_hosts
+
+# - name: Include resolv role
+#   include_role:
+#     name: resolv
+#   vars:
+#     resolv_hosts: "{{ resolv_hosts }}"

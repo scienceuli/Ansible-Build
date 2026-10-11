@@ -12,5 +12,5 @@
         mode: "0440"
         validate: "visudo -cf %s"
   roles:
-    - nginx
+    - nginx_host
     - flask_app

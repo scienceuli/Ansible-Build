@@ -80,7 +80,7 @@
 
     - name: Obtain Let's Encrypt certificate
       ansible.builtin.include_role:
-        name: certbot
+        name: certbot_host
       vars:
         certbot_domain: "{{ homebox_domain }}"
         certbot_webroot: "{{ homebox_acme_challenge_root }}"

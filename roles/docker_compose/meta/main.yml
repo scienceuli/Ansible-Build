@@ -1,0 +1,6 @@
+---
+dependencies:
+  - role: docker_volume
+    tags:
+      - docker_volume
+      - depends

@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+set -e
+
+script=$(basename "$0")
+version="1.0.1"
+
+help() {
+    echo
+    echo "$script"
+    echo
+    echo 'Description: Restore MySQL/MariaDB Docker database.'
+    echo "Syntax: $script [-c|-d|-f|-r|help]"
+    echo "Example: $script -c mqysl01 -d moodle -f /tmp/dump.sql -r"
+    echo 'options:'
+    echo '  -c    Docker container name. Defaults to '\''mysql'\''.'
+    echo '  -d    Name of database. Defaults to filename'
+    echo '  -f    Path to sql dump.'
+    echo '  -r    Replace existing database (drop + recreate).'
+    echo "  help  Show $script manual."
+    echo
+}
+
+if [[ "$1" == 'help' ]]; then
+  help
+  exit
+fi
+
+replace='false'
+container=mysql
+
+while getopts ':c: :d: :f: :r' opt; do
+    case $opt in
+        c) container="$OPTARG";;
+        d) database="$OPTARG";;
+        f) file="$OPTARG";;
+        r) replace='true';;
+        \?) echo "Invalid option -$OPTARG" >&2
+        help
+        exit 1;;
+    esac
+done
+
+filename=$(basename -- "$file")
+database=${database:="${filename%%.*}"}
+
+[[ -z "$file" ]] && { echo 'Parameter -f|filename is empty.' ; exit 1; }
+
+image=$(docker inspect $container --format='{{.Config.Image}}')
+
+if $replace; then
+    if [[ "$image" =~ 'mariadb' ]]; then
+        echo "Drop existing MariaDB database $database..."
+        echo "DROP DATABASE IF EXISTS $database" | docker exec -i "$container" /bin/bash -c "mariadb -p\$MARIADB_ROOT_PASSWORD"
+    fi
+    if [[ "$image" =~ 'mysql' ]]; then
+        echo "Drop existing MySQL database $database..."
+        echo "DROP DATABASE IF EXISTS $database" | docker exec -i "$container" /bin/bash -c "mysql -p\$MYSQL_ROOT_PASSWORD"
+    fi
+fi
+
+if [[ "$image" =~ 'mariadb' ]]; then
+    echo "Create MariaDB database $database..."
+    echo "CREATE DATABASE IF NOT EXISTS $database" | docker exec -i "$container" /bin/bash -c "mariadb -p\$MARIADB_ROOT_PASSWORD"
+fi
+if [[ "$image" =~ 'mysql' ]]; then
+    echo "Create MySQL database $database..."
+    echo "CREATE DATABASE IF NOT EXISTS $database" | docker exec -i "$container" /bin/bash -c "mysql -p\$MYSQL_ROOT_PASSWORD"
+fi
+
+if [[ "$image" =~ 'mariadb' ]]; then
+    echo "Restore MariaDB database $database from $file ..."
+    cat "$file" | docker exec -i "$container" /bin/bash -c "mariadb -u root --password=\$MARIADB_ROOT_PASSWORD $database"
+fi
+if [[ "$image" =~ 'mysql' ]]; then
+    echo "Restore MySQL database $database from $file ..."
+    cat "$file" | docker exec -i "$container" /bin/bash -c "mysql -p\$MYSQL_ROOT_PASSWORD $database"
+fi
+
+echo 'The Docker MySQL/MariaDB restore has finished.'

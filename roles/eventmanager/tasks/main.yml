@@ -1,0 +1,65 @@
+---
+# roles/eventmanager/tasks/main.yml
+
+- name: Ensure required variables are set
+  ansible.builtin.assert:
+    that:
+      - eventmanager_domain is defined
+      - eventmanager_secret_key is defined
+      - eventmanager_encrypt_key is defined
+      - eventmanager_db_password is defined
+      - eventmanager_network is defined
+    fail_msg: >
+      eventmanager_domain, eventmanager_network, eventmanager_secret_key,
+      eventmanager_encrypt_key and eventmanager_db_password must be set
+      (secrets via an ansible-vault-encrypted host_vars file).
+
+- name: Install git
+  ansible.builtin.apt:
+    name: git
+    state: present
+    update_cache: true
+
+- name: Ensure compose directory exists
+  ansible.builtin.file:
+    path: "{{ eventmanager_compose_dir }}"
+    state: directory
+    mode: "0755"
+
+# The nginx container reads static/ and media/ from here, so 0755
+- name: Ensure data directory exists (writable by the container user)
+  ansible.builtin.file:
+    path: "{{ eventmanager_data_dir }}"
+    state: directory
+    owner: "{{ eventmanager_container_uid }}"
+    group: "{{ eventmanager_container_uid }}"
+    mode: "0755"
+
+- name: Fetch eventmanager source from git
+  ansible.builtin.git:
+    repo: "{{ eventmanager_git_repo }}"
+    dest: "{{ eventmanager_src_dir }}"
+    version: "{{ eventmanager_git_version }}"
+  register: eventmanager_source_sync
+
+- name: Deploy env file
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ eventmanager_compose_dir }}/.env"
+    mode: "0600"          # Django secret key, DB and SMTP credentials
+  register: eventmanager_env_file
+
+- name: Deploy docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ eventmanager_compose_dir }}/docker-compose.yml"
+    mode: "0600"          # contains the DB password
+  register: eventmanager_compose_file
+
+# Migrations and collectstatic run in the web container's entrypoint
+- name: Build and (re)start eventmanager via docker compose
+  community.docker.docker_compose_v2:
+    project_src: "{{ eventmanager_compose_dir }}"
+    state: present
+    build: "{{ 'always' if eventmanager_source_sync.changed else 'policy' }}"
+    recreate: "{{ 'always' if (eventmanager_source_sync.changed or eventmanager_env_file.changed or eventmanager_compose_file.changed) else 'auto' }}"

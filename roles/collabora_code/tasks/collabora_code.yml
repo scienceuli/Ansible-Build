@@ -1,0 +1,101 @@
+---
+- name: Ensure {{ role_name }} data dir exists
+  ansible.builtin.file:
+    path: "{{ collabora_code_data_dir }}"
+    state: directory
+
+- name: Start {{ role_name }} container {{ collabora_code_hostname }}
+  community.docker.docker_container:
+    name: "{{ collabora_code_hostname }}"
+    labels:
+      description: "{{ collabora_code_description }}"
+    image: "{{ collabora_code_image }}"
+    restart_policy: unless-stopped
+    env:
+      username: "{{ collabora_code_username }}"
+      password: "{{ collabora_code_password }}"
+      server_name: "{{ collabora_code_server_name}}"
+      # aliasgroup1: "{{ collabora_code_host }},{{ collabora_code_alias1 }}"
+      extra_params: --o:ssl.enable={{ collabora_code_ssl_enabled }}
+    ports:
+      - "{{ collabora_code_port }}:9980"
+    networks:
+      - name: "{{ docker_network_name }}"
+
+# FIXME: It was not possible to mount /etc/coolwsd/coolwsd.xml from the container to the host
+
+- name: Copy coolwsd config file from container to data dir
+  ansible.builtin.command: docker cp {{ collabora_code_hostname }}:/etc/coolwsd/coolwsd.xml {{ collabora_code_data_dir }}
+
+- name: Set remote_font_config > url value
+  community.general.xml:
+    path: "{{ collabora_code_data_dir }}/coolwsd.xml"
+    xpath: /config/remote_font_config/url
+    value: "{{ collabora_code_remote_font_config_url }}"
+  when: collabora_code_remote_font_config_url is defined
+
+- name: Set alias_groups mode to "groups"
+  community.general.xml:
+    path: "{{ collabora_code_data_dir }}/coolwsd.xml"
+    xpath: /config/alias_groups
+    attribute: mode
+    value: "groups"
+
+- name: Set alias_groups > group > host text content
+  community.general.xml:
+    path: "{{ collabora_code_data_dir }}/coolwsd.xml"
+    xpath: /config/alias_groups/group/host
+    value: "{{ collabora_code_host }}"
+
+- name: Set alias_groups > group > host allow attribute
+  community.general.xml:
+    path: "{{ collabora_code_data_dir }}/coolwsd.xml"
+    xpath: /config/alias_groups/group/host
+    attribute: allow
+    value: "true"
+
+- name: Set alias_groups > group > alias value
+  community.general.xml:
+    path: "{{ collabora_code_data_dir }}/coolwsd.xml"
+    xpath: /config/alias_groups/group/alias
+    value: "{{ collabora_code_alias1 }}"
+  when: collabora_code_alias1 is defined and collabora_code_alias1 | trim != ''
+
+- name: Copy coolwsd config file from data dir to container
+  ansible.builtin.command: docker cp {{ collabora_code_data_dir }}/coolwsd.xml {{ collabora_code_hostname }}:/etc/coolwsd/coolwsd.xml
+
+- name: Fix file permission after copy back
+  ansible.builtin.command: docker exec -u root {{ collabora_code_hostname }} chown cool:cool /etc/coolwsd/coolwsd.xml
+  notify: Restart {{ role_name }} container
+
+# - name: Set remote_font_config.url
+#   ansible.builtin.command: >
+#     docker exec {{ collabora_code_hostname }} coolconfig set remote_font_config.url "{{ collabora_code_remote_font_config_url }}"
+#   when: collabora_code_remote_font_config_url is defined
+#   changed_when: false
+
+# - name: Set alias_groups.mode to "groups"
+#   ansible.builtin.command: >
+#     docker exec {{ collabora_code_hostname }} coolconfig set alias_groups.mode "groups"
+#   changed_when: false
+
+# - name: Set alias_groups.group.host to {{ collabora_code_host }}
+#   ansible.builtin.command: >
+#     docker exec {{ collabora_code_hostname }} coolconfig set alias_groups.group.host "{{ collabora_code_host }}"
+#   changed_when: false
+
+# - name: Set alias_groups.group.host.allow to "true"
+#   ansible.builtin.command: >
+#     docker exec {{ collabora_code_hostname }} coolconfig set alias_groups.group.host.allow "true"
+#   changed_when: false
+
+# - name: Set alias_groups.group.alias to {{ collabora_code_alias1 }}
+#   ansible.builtin.command: >
+#     docker exec {{ collabora_code_hostname }} coolconfig set alias_groups.group.alias "{{ collabora_code_alias1 }}"
+#   when: collabora_code_alias1 is defined and collabora_code_alias1 | trim != ''
+#   changed_when: false
+
+# - name: Restart {{ role_name }} container
+#   community.docker.docker_container:
+#     name: "{{ collabora_code_hostname }}"
+#     restart: true

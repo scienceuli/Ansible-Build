@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -e
+
+repository='https://ansible.build'
+
+scripts=(
+    docker-postgres-backup
+    docker-postgres-create
+    docker-postgres-list
+    docker-postgres-restore
+    docker-postgres-drop
+    docker-postgres-patch
+    docker-postgres-duplicate
+    docker-postgres-size
+    docker-postgres-shell
+    docker-postgres-upgrade
+    docker-postgres-rename
+)
+
+install_dir='/usr/local/bin'
+
+if [[ "$1" == '--user' ]]; then
+    install_dir="$HOME/.local/bin"
+    mkdir -p "$install_dir"
+    echo "Installing scripts in $install_dir"
+fi
+
+for script in "${scripts[@]}"; do
+    echo "Installing $script ..."
+    curl -L "$repository/postgres/$script" -o "$install_dir/$script"
+    chmod +x "$install_dir/$script"
+done

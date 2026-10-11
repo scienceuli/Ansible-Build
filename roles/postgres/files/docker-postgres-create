@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -e
+
+script=$(basename "$0")
+version="1.0.1"
+
+help() {
+  echo
+  echo "$script"
+  echo
+  echo 'Description: Create database in Postgres container.'
+  echo "Syntax: $script [-c|-d|help]"
+  echo 'Example: $script -c postgres01 -d n8n '
+  echo 'options:'
+  echo "  -c    Docker container name. Defaults to 'postgres'."
+  echo '  -d    Name of database.'
+  echo "  help  Show $script manual."
+  echo
+}
+
+if [[ "$1" == 'help' ]]; then
+    help
+    exit
+fi
+
+container='postgres'
+
+while getopts ":c: :d: :f:" opt; do
+  case $opt in
+    c) container="$OPTARG";;
+    d) database="$OPTARG";;
+    \?) echo "Invalid option -$OPTARG" >&2
+    help
+    exit 1;;
+  esac
+done
+
+[[ -z "$database" ]] && { echo 'Parameter -d|database is empty.' ; exit 1; }
+
+databases=$(docker-postgres-list -c "$container")
+
+if [[ "$databases"  =~ "$database" ]]; then
+  echo "Database $database already exists."
+  exit 0
+fi
+
+echo "Create Postgres database $database ..."
+docker exec -i $container /bin/bash -c "psql postgresql://\$POSTGRES_USER:\$POSTGRES_PASSWORD@\$HOSTNAME/postgres -c 'CREATE DATABASE \"$database\";'"
+echo "Database $database has been created."

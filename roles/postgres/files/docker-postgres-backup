@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -e
+
+script=$(basename "$0")
+version="1.0.1"
+
+help() {
+  echo
+  echo "$script"
+  echo
+  echo 'Description: Backup Docker Postgres database.'
+  echo "Syntax: $script [-d|-a|-o|-c|help]"
+  echo 'Example: $script -d postgres,odoo -o /tmp -c postgres01'
+  echo 'options:'
+  echo '  -d    Comma-separated list of database names.'
+  echo '  -a    Backup all databases'
+  echo "  -o    Output directory. Defaults to '/var/tmp/\$container'."
+  echo "  -c    Docker container name. Defaults to 'postgres'."
+  echo "  help  Show $script manual."
+  echo
+}
+
+if [[ "$1" == 'help' ]]; then
+  help
+  exit
+fi
+
+all='false'
+dir='/var/tmp'
+container='postgres'
+
+while getopts ":a :c: :d: :o:" opt; do
+  case $opt in
+    a) all='true'
+    ;;
+    c) container="$OPTARG"
+    ;;
+    d) databases="$OPTARG"
+    ;;
+    o) dir="$OPTARG"
+    ;;
+    \?) echo "Invalid option -$OPTARG" >&2
+    help
+    exit 1;;
+  esac
+done
+
+[[ -z "$databases" ]] && [[ "$all" == 'false' ]] && { echo 'Parameter -d or -a|databases all must be set' ; exit 1; }
+
+if $all ; then
+  database_list=($(docker exec "$container" /bin/bash -c "psql -U \$POSTGRES_USER \
+    template1 -q -A -t -c 'SELECT datname FROM pg_database WHERE datistemplate = false;'"))
+  printf -v databases '%s,' "${database_list[@]}"
+  databases="${databases%,}"
+fi
+
+if [[ ! -z $databases ]] ; then
+  database_list=($(echo $databases | tr ',' '\n'))
+fi
+
+echo "Create and cleanup backup folder: ${dir}/${container}"
+mkdir -p ${dir}/${container}
+rm -rf ${dir}/${container}/*
+
+for database in "${database_list[@]}"
+do
+    output="${dir}/${container}/${database}.sql"
+    echo "Dump $database database to $output..."
+    rm -f "$output"
+    docker exec $container /bin/bash -c "pg_dump -U \$POSTGRES_USER $database" > "$output"
+done
+
+echo "The Docker Postgres backup has finished: ${dir}/${container}/{$databases}.sql"

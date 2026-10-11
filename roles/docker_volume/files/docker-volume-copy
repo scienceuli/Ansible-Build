@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+set -e
+
+script=$(basename "$0")
+version="1.0.1"
+
+help() {
+    echo
+    echo "$script"
+    echo
+    echo 'Description: Copy docker volumes or specific folders.'
+    echo "Syntax: $script [-s|-t|-f|-r|-V|help]"
+    echo 'Example: $script -s odoo-main:/filestore/odoo-main -t odoo-int:/filestore/odoo-int -f'
+    echo 'options:'
+    echo '  -s    Source Docker volume name and path.'
+    echo '  -t    Target Docker volume name and path.'
+    echo '  -f    Remove target path before copy.'
+    echo '  -r    Replace existing target volume.'
+    echo "  -V    Show $script version."
+    echo "  help  Show $script manual."
+    echo
+}
+
+if [[ "$1" == 'help' ]]; then
+    help
+    exit
+fi
+
+replace='false'
+force='false'
+
+while getopts ':s: :t: :f :r :V' opt; do
+    case $opt in
+        s) source="$OPTARG"
+        ;;
+        t) target="$OPTARG"
+        ;;
+        f) force='true'
+        ;;
+        r) replace='true'
+        ;;
+        V) echo "$script version $version"
+        exit 0
+        ;;
+        \?) echo "Invalid option -$OPTARG" >&2
+        help
+        exit;;
+    esac
+done
+
+[[ -z "$source" ]] && { echo 'Parameter -s|source is empty.' ; exit 1; }
+[[ -z "$target" ]] && { echo 'Parameter -t|target is empty.' ; exit 1; }
+
+target_volume=$(echo $target | cut -f1 -d:)
+target_path=$(echo $target | grep -q ":" && echo $target | cut -f2 -d: || echo "")
+source_volume=$(echo $source | cut -f1 -d:)
+source_path=$(echo $source | grep -q ":" && echo $source | cut -f2 -d: || echo "")
+
+if $replace; then
+    echo "Remove docker volume $target_volume."
+    docker volume rm "$target_volume"
+fi
+
+if [[ -z "$target_path" ]]; then
+    docker volume inspect "$target_volume" > /dev/null && { echo "Docker volume $target_volume already exists." ; exit 1; }
+fi
+
+echo "Create docker volume $target_volume."
+docker volume create --name "$target_volume"
+
+if $force; then
+    echo "Remove path $target_path in volume $target_volume."
+    docker container run --rm \
+        -v "$target_volume":/to \
+        alpine ash -c "rm -rf /to$target_path"
+fi
+
+echo "Copy Docker volume content from $source to $target"
+docker container run --rm \
+    -v "$source_volume":/from \
+    -v "$target_volume":/to \
+    alpine ash -c "cd /to; mkdir -p .$target_path; cd /from$source_path; cp -av . /to$target_path" \
+    > /dev/null && { echo "Docker volume copy has finished."; }
+
+echo "Fix ownership for $target_path in container:"
+echo "docker exec -u root \$CONTAINER chown -R \$USER:\$GROUP /path/to$target_path"

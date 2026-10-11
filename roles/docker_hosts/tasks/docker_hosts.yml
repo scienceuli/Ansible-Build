@@ -1,0 +1,31 @@
+---
+- name: Gather package facts
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Fail if package jq is not installed
+  ansible.builtin.fail:
+    msg: Package jq not installed
+  when: "'jq' not in ansible_facts.packages"
+
+- name: Copy {{ role_name }} scripts
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /usr/local/bin/{{ item }}
+    mode: +x
+  loop:
+    - docker-update-hosts
+
+- name: Copy {{ role_name }} service
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /etc/systemd/system/{{ item }}
+    mode: +x
+  loop:
+    - docker-update-hosts.service
+
+- name: Start {{ role_name }} service
+  ansible.builtin.service:
+    name: docker-update-hosts
+    state: started
+    enabled: true

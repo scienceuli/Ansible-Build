@@ -51,7 +51,7 @@
 
 - name: Obtain Let's Encrypt certificate
   ansible.builtin.include_role:
-    name: certbot
+    name: certbot_host
   vars:
     certbot_domain: "{{ mosquitto_domain }}"
     certbot_webroot: "{{ mosquitto_acme_challenge_root }}"

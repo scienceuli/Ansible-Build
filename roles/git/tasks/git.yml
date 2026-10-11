@@ -1,0 +1,27 @@
+---
+- name: Gather package facts
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Fail if package git is not installed
+  ansible.builtin.fail:
+    msg: Package restic not installed
+  when: "'git' not in ansible_facts.packages"
+
+- name: Git ssh checkout
+  ansible.builtin.git:
+    repo: "{{ item.repo }}"
+    accept_newhostkey: true
+    key_file: "{{ item.key_file }}"
+    dest: "{{ item.dest }}"
+    version: "{{ item.version }}"
+  loop: "{{ git_repositories }}"
+  when: item.repo is regex('git@')
+
+- name: Git https checkout
+  ansible.builtin.git:
+    repo: "{{ item.repo }}"
+    dest: "{{ item.dest }}"
+    version: "{{ item.version }}"
+  loop: "{{ git_repositories }}"
+  when: item.repo is regex('https:\/\/')

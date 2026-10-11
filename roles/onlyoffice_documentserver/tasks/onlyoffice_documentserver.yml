@@ -1,0 +1,13 @@
+---
+- name: Start {{ role_name }} container {{ onlyoffice_documentserver_hostname }}
+  community.docker.docker_container:
+    name: "{{ onlyoffice_documentserver_hostname }}"
+    labels:
+      description: "{{ onlyoffice_documentserver_description }}"
+    image: "{{ onlyoffice_documentserver_image }}"
+    restart_policy: unless-stopped
+    env:
+      JWT_SECRET: "{{ onlyoffice_documentserver_jwt_secret }}"
+    ports: "{{ onlyoffice_documentserver_ports }}"
+    networks:
+      - name: "{{ docker_network_name }}"

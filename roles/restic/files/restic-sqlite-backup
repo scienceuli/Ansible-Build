@@ -1,0 +1,30 @@
+#!/bin/sh
+# Stage a consistent copy of a directory containing a live SQLite database.
+# Everything is copied verbatim except the database, which goes through
+# `sqlite3 .backup` (takes the proper locks, folds in the -wal file).
+#
+# Usage: restic-sqlite-backup -s <source dir> -d <db file, relative to source> -o <output dir>
+set -eu
+
+while getopts "s:d:o:" opt; do
+    case "$opt" in
+        s) SRC="$OPTARG" ;;
+        d) DB="$OPTARG" ;;
+        o) OUT="$OPTARG" ;;
+        *) echo "Usage: $0 -s <source dir> -d <db file> -o <output dir>" >&2; exit 1 ;;
+    esac
+done
+: "${SRC:?-s missing}" "${DB:?-d missing}" "${OUT:?-o missing}"
+
+mkdir -p "$OUT"
+rsync -a --delete \
+    --exclude "$DB" \
+    --exclude "$DB-wal" \
+    --exclude "$DB-shm" \
+    --exclude "$DB-journal" \
+    "$SRC"/ "$OUT"/
+
+# Write to a temp name first so a failed backup never replaces the last good copy.
+sqlite3 "$SRC/$DB" ".backup '$OUT/$DB.tmp'"
+sqlite3 "$OUT/$DB.tmp" "PRAGMA integrity_check;" | grep -qx ok
+mv "$OUT/$DB.tmp" "$OUT/$DB"

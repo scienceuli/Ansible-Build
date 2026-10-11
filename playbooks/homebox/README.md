@@ -40,7 +40,7 @@ is needed on any command.
 
 ## TLS / Let's Encrypt
 
-Both roles now issue their own certs via the shared `certbot` role
+Both roles now issue their own certs via the shared `certbot_host` role
 (webroot method, HTTP-01 challenge). Sequence per app:
 
 1. Deploy an HTTP-only vhost so `/.well-known/acme-challenge/` is

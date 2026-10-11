@@ -1,0 +1,96 @@
+---
+- name: Get all vercel dns records
+  ansible.builtin.uri:
+    url: "{{ vercel_api_url }}/v4/domains/{{ item.domain }}/records?teamId={{ vercel_team_id }}&limit=1000"
+    headers:
+      Content-Type: application/json
+      Authorization: Bearer {{ vercel_token }}
+    return_content: true
+  loop: "{{ vercel_dns }}"
+  register: vercel_dns_records
+  loop_control:
+    label: "{{ item.domain }}"
+
+- name: Set vercel DNS present fact
+  ansible.builtin.set_fact:
+    record: "{{ item.1.name }}.{{ item.0.item.domain }}-{{ item.1.type }}"
+  with_subelements:
+    - "{{ vercel_dns_records.results }}"
+    - json.records
+  register: vercel_dns_present
+  loop_control:
+    label: "{{ item.1.name }}.{{ item.0.item.domain }}-{{ item.1.type }}"
+
+- name: Map dictionary to list
+  ansible.builtin.set_fact:
+    vercel_dns_present: "{{ vercel_dns_present.results | map(attribute='ansible_facts.record') | list }}"
+
+- name: Show DNS present list
+  debug:
+    var: vercel_dns_present
+
+- name: Show DNS entries to create
+  debug:
+    msg: "{{ item.1.name }}.{{ item.0.domain }}-{{ item.1.type }}"
+  with_subelements:
+    - "{{ vercel_dns }}"
+    - records
+  when: ((item.1.name + "." + item.0.domain + "-" + item.1.type) not in vercel_dns_present) and (item.1.state == 'present')
+
+- name: Create DNS entries
+  ansible.builtin.uri:
+    url: "{{ vercel_api_url }}/v2/domains/{{ item.0.domain }}/records?teamId={{ vercel_team_id }}"
+    method: POST
+    headers:
+      Content-Type: application/json
+      Authorization: Bearer {{ vercel_token }}
+    body: "{{ item.1  | dict2items | rejectattr('key', 'equalto', 'state') | list | items2dict | to_json }}"
+  with_subelements:
+    - "{{ vercel_dns }}"
+    - records
+  when: ((item.1.name + "." + item.0.domain + "-" + item.1.type) not in vercel_dns_present) and (item.1.state == 'present')
+  register: response
+  changed_when: response.status == 200
+
+- name: Set vercel DNS absent fact
+  ansible.builtin.set_fact:
+    record: "{{ item.1.name }}.{{ item.0.domain }}-{{ item.1.type }}"
+  with_subelements:
+    - "{{ vercel_dns }}"
+    - records
+  when: item.1.state == 'absent'
+  register: vercel_dns_absent
+
+- name: Map dictionary to list
+  ansible.builtin.set_fact:
+    vercel_dns_absent: "{{ vercel_dns_absent.results | selectattr('ansible_facts.record','defined') | map(attribute='ansible_facts.record') | list }}"
+
+- name: Show DNS absent list
+  debug:
+    var: vercel_dns_absent
+
+- name: Show DNS entries to remove
+  debug:
+    msg: "{{ item.1.name }}.{{ item.0.item.domain }}-{{ item.1.type }}"
+  with_subelements:
+    - "{{ vercel_dns_records.results }}"
+    - json.records
+  when: (item.1.name + "." + item.0.item.domain + "-" + item.1.type) in vercel_dns_absent
+  loop_control:
+    label: "{{ item.1.name }}.{{ item.0.item.domain }}-{{ item.1.type }}"
+
+- name: Remove DNS entries
+  ansible.builtin.uri:
+    url: "{{ vercel_api_url }}/v2/domains/{{ item.0.item.domain }}/records/{{ item.1.id }}?teamId={{ vercel_team_id }}"
+    method: DELETE
+    headers:
+      Content-Type: application/json
+      Authorization: Bearer {{ vercel_token }}
+  with_subelements:
+    - "{{ vercel_dns_records.results }}"
+    - json.records
+  when: (item.1.name + "." + item.0.item.domain + "-" + item.1.type) in vercel_dns_absent
+  register: response
+  changed_when: response.status == 200
+  loop_control:
+    label: "{{ item.1.name }}.{{ item.0.item.domain }}-{{ item.1.type }}"

@@ -1,0 +1,33 @@
+{#-
+  Rendered once per domain (item = one result of "Get all netcup dns records",
+  item.item = the matching netcup_dns entry). Records are matched on
+  hostname + type, like the vercel role:
+    present, no match        -> create
+    present, value differs   -> modify the first match (keeps its id)
+    absent                   -> delete every match
+  Records in the zone that aren't listed in netcup_dns are left alone.
+  netcup uses '@' for the zone apex; name: '' is accepted for vercel compat.
+-#}
+{%- set existing = item.json.responsedata.dnsrecords | default([], true) -%}
+{%- set ns = namespace(create=[], modify=[], delete=[]) -%}
+{%- for r in item.item.records -%}
+{%-   set host = r.name if r.name | length > 0 else '@' -%}
+{%-   set type = r.type | upper -%}
+{%-   set matches = existing | selectattr('hostname', 'equalto', host) | selectattr('type', 'equalto', type) | list -%}
+{%-   if r.state | default('present') == 'present' -%}
+{%-     set want = {'hostname': host, 'type': type, 'destination': r.value} -%}
+{%-     if r.priority is defined -%}
+{%-       set want = want | combine({'priority': r.priority | string}) -%}
+{%-     endif -%}
+{%-     if matches | length == 0 -%}
+{%-       set ns.create = ns.create + [want] -%}
+{%-     elif matches[0].destination != r.value or (r.priority is defined and matches[0].priority | string != r.priority | string) -%}
+{%-       set ns.modify = ns.modify + [want | combine({'id': matches[0].id})] -%}
+{%-     endif -%}
+{%-   else -%}
+{%-     for m in matches -%}
+{%-       set ns.delete = ns.delete + [{'id': m.id, 'hostname': m.hostname, 'type': m.type, 'priority': m.priority, 'destination': m.destination, 'deleterecord': true}] -%}
+{%-     endfor -%}
+{%-   endif -%}
+{%- endfor -%}
+{{ {'domain': item.item.domain, 'create': ns.create, 'modify': ns.modify, 'delete': ns.delete} | to_json }}

@@ -1,0 +1,112 @@
+---
+# netcup's CCP API always answers HTTP 200; success/failure is only in
+# json.status. The read-only calls (login, infoDnsRecords, logout) run in
+# check mode too, so --check shows the planned changes without applying them.
+- name: Manage netcup DNS records
+  block:
+    - name: Login to netcup API
+      ansible.builtin.uri:
+        url: "{{ netcup_api_url }}"
+        method: POST
+        body_format: json
+        body:
+          action: login
+          param:
+            customernumber: "{{ netcup_customer_number }}"
+            apikey: "{{ netcup_api_key }}"
+            apipassword: "{{ netcup_api_password }}"
+      register: netcup_login
+      failed_when: netcup_login.json.status | default('') != 'success'
+      check_mode: false
+      no_log: true
+
+    - name: Set netcup API session fact
+      ansible.builtin.set_fact:
+        netcup_session_id: "{{ netcup_login.json.responsedata.apisessionid }}"
+      no_log: true
+
+    - name: Get all netcup dns records
+      ansible.builtin.uri:
+        url: "{{ netcup_api_url }}"
+        method: POST
+        body_format: json
+        body:
+          action: infoDnsRecords
+          param:
+            domainname: "{{ item.domain }}"
+            customernumber: "{{ netcup_customer_number }}"
+            apikey: "{{ netcup_api_key }}"
+            apisessionid: "{{ netcup_session_id }}"
+      loop: "{{ netcup_dns }}"
+      register: netcup_dns_records
+      failed_when: netcup_dns_records.json.status | default('') != 'success'
+      check_mode: false
+      loop_control:
+        label: "{{ item.domain }}"
+
+    - name: Show DNS present list
+      ansible.builtin.debug:
+        msg: "{{ item.json.responsedata.dnsrecords | map(attribute='hostname') | zip(item.json.responsedata.dnsrecords | map(attribute='type')) | map('join', '-') | list }}"
+      loop: "{{ netcup_dns_records.results }}"
+      loop_control:
+        label: "{{ item.item.domain }}"
+
+    # One {domain, create, modify, delete} entry per domain; see the template
+    # for how desired records are matched against existing ones.
+    - name: Compute netcup DNS changes
+      ansible.builtin.set_fact:
+        netcup_dns_changes: "{{ netcup_dns_changes | default([]) + [lookup('ansible.builtin.template', 'netcup_dns_changes.j2') | from_json] }}"
+      loop: "{{ netcup_dns_records.results }}"
+      loop_control:
+        label: "{{ item.item.domain }}"
+
+    - name: Show DNS entries to create / modify / remove
+      ansible.builtin.debug:
+        msg:
+          create: "{{ item.create }}"
+          modify: "{{ item.modify }}"
+          remove: "{{ item.delete }}"
+      loop: "{{ netcup_dns_changes }}"
+      loop_control:
+        label: "{{ item.domain }}"
+
+    # updateDnsRecords takes creates (no id), modifications (with id) and deletes
+    # (deleterecord: true) in a single call per domain.
+    - name: Update DNS entries
+      ansible.builtin.uri:
+        url: "{{ netcup_api_url }}"
+        method: POST
+        body_format: json
+        body:
+          action: updateDnsRecords
+          param:
+            domainname: "{{ item.domain }}"
+            customernumber: "{{ netcup_customer_number }}"
+            apikey: "{{ netcup_api_key }}"
+            apisessionid: "{{ netcup_session_id }}"
+            dnsrecordset:
+              dnsrecords: "{{ item.create + item.modify + item.delete }}"
+      loop: "{{ netcup_dns_changes }}"
+      when: (item.create + item.modify + item.delete) | length > 0
+      register: response
+      failed_when: response.json.status | default('') != 'success'
+      changed_when: true
+      loop_control:
+        label: "{{ item.domain }}"
+
+  always:
+    - name: Logout from netcup API
+      ansible.builtin.uri:
+        url: "{{ netcup_api_url }}"
+        method: POST
+        body_format: json
+        body:
+          action: logout
+          param:
+            customernumber: "{{ netcup_customer_number }}"
+            apikey: "{{ netcup_api_key }}"
+            apisessionid: "{{ netcup_session_id }}"
+      when: netcup_session_id is defined
+      check_mode: false
+      failed_when: false
+      no_log: true

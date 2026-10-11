@@ -1,6 +1,7 @@
 ---
-# roles/nginx/defaults/main.yml
-
-# Debian's nginx package ships an enabled "default" vhost - remove it so it
-# can't shadow/confuse the per-domain vhosts the homebox/nextcloud roles add.
-nginx_remove_default_site: true
+nginx_ports:
+  - "80:80"
+  - "443:443"
+nginx_description: Nginx
+nginx_data_dir: "/usr/share/{{ nginx_hostname }}"
+nginx_cache_enabled: false

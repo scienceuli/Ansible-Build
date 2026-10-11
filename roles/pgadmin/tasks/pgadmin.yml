@@ -1,0 +1,34 @@
+---
+- name: Create {{ role_name }} volume
+  community.docker.docker_volume:
+    name: "{{ pgadmin_volume_name }}"
+
+- name: Ensure {{ role_name }} data dir exists
+  ansible.builtin.file:
+    path: "{{ pgadmin_data_dir }}"
+    state: directory
+
+- name: Copy {{ role_name }} server conf
+  ansible.builtin.template:
+    src: servers.json
+    dest: "{{ pgadmin_data_dir }}/servers.json"
+  when: pgadmin_servers is defined
+  notify: Restart {{ role_name }} container
+
+- name: Start {{ role_name }} container {{ pgadmin_hostname }}
+  community.docker.docker_container:
+    name: "{{ pgadmin_hostname }}"
+    labels:
+      description: "{{ pgadmin_description }}"
+    image: "{{ pgadmin_image }}"
+    restart_policy: unless-stopped
+    ports: "{{ pgadmin_ports | default([]) }}"
+    env:
+      PGADMIN_DEFAULT_EMAIL: "{{ pgadmin_user }}"
+      PGADMIN_DEFAULT_PASSWORD: "{{ pgadmin_password }}"
+      SCRIPT_NAME: "{{ pgadmin_script_name }}"
+      PGADMIN_CONFIG_WTF_CSRF_ENABLED: "False"
+    volumes:
+      - "{{ pgadmin_volume_name }}:/var/lib/pgadmin"
+      - "{{ pgadmin_data_dir }}/servers.json:/pgadmin4/servers.json"
+    network_mode: "{{ pgadmin_network_mode }}"

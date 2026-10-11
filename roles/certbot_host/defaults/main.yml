@@ -1,0 +1,13 @@
+---
+# roles/certbot_host/defaults/main.yml
+
+# Required, set via group_vars (not secret, but centralize it so it's set once):
+#   letsencrypt_email: "you@example.com"
+letsencrypt_email: ""
+
+# Set true only while testing new domains, to avoid hitting Let's Encrypt's real rate limits
+certbot_staging: false
+
+# Passed in per-call by whichever app role includes this role:
+#   certbot_domain:  the FQDN to issue a cert for
+#   certbot_webroot: the webroot dir nginx serves /.well-known/acme-challenge/ from
