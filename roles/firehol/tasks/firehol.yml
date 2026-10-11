@@ -1,0 +1,36 @@
+---
+- name: Ensure {{ role_name }} data dir exists
+  ansible.builtin.file:
+    path: "{{ firehol_data_dir }}"
+    state: directory
+
+- name: Check if FIREHOL_BLACKLIST chain exists
+  ansible.builtin.shell: sudo iptables -t filter -L FIREHOL_BLACKLIST &> /dev/null
+  register: chain_exists
+  ignore_errors: true
+  changed_when: false
+
+- name: Create FIREHOL_BLACKLIST chain if it does not exist
+  ansible.builtin.command: sudo iptables -t filter -N FIREHOL_BLACKLIST
+  when: chain_exists.rc != 0
+
+- name: Attach FIREHOL_BLACKLIST to INPUT
+  ansible.builtin.command:
+    cmd: sudo iptables -t filter -I INPUT -j FIREHOL_BLACKLIST
+
+- name: Copy {{ role_name }} scripts
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /usr/local/bin/{{ item }}
+    mode: +x
+  loop:
+    - firehol-pull
+    - firehol-apply
+    - firehol-remove
+
+- name: Register {{ role_name }} update job
+  ansible.builtin.cron:
+    name: Update FireHOL blacklist
+    hour: "22"
+    minute: "{{ 59 |random(seed=ansible_host) }}"
+    job: firehol-pull && firehol-apply; write-node-exporter-metric -c "Update FireHOL blacklist" -v $?

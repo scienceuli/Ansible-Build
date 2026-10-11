@@ -1,0 +1,1 @@
+FROM {{ wordpress_build_image }}

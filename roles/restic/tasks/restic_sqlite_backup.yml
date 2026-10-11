@@ -1,0 +1,36 @@
+---
+- name: Copy sqlite backup script
+  ansible.builtin.copy:
+    src: restic-sqlite-backup
+    dest: /usr/local/bin/restic-sqlite-backup
+    mode: "0755"
+  when: restic_backup_set | selectattr('type', 'equalto', 'sqlite') | list | length > 0
+
+- name: Ensure sqlite3 and rsync are installed
+  ansible.builtin.package:
+    name:
+      - sqlite3
+      - rsync
+    state: present
+  when: restic_backup_set | selectattr('type', 'equalto', 'sqlite') | list | length > 0
+
+- name: Verify sqlite database exists
+  ansible.builtin.stat:
+    path: "{{ item.path }}/{{ item.database }}"
+  register: restic_sqlite_db
+  failed_when: not restic_sqlite_db.stat.exists
+  loop: "{{ restic_backup_set }}"
+  when: item.type == "sqlite"
+
+- name: Register sqlite backup jobs
+  ansible.builtin.cron:
+    name: "{{ item.id }}"
+    hour: "{{ item.hour }}"
+    minute: "{{ 59 | random(seed=item.id) }}"
+    job: restic-sqlite-backup -s {{ item.path }} -d {{ item.database }} -o {{ restic_backup_dir }}/{{ item.name }} {{ '&& restic-main backup ' +
+      restic_backup_dir + '/' + item.name + ' --tag ' + (item.tags | join(' --tag ')) if item.upload | default(true) else '' }}; write-node-exporter-metric
+      -c '{{ item.id }}' -v $?
+    disabled: "{{ item.disabled | default(false) }}"
+    state: "{{ item.state | default('present') }}"
+  loop: "{{ restic_backup_set }}"
+  when: item.type == "sqlite"

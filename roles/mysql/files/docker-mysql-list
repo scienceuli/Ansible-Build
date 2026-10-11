@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -e
+
+script=$(basename "$0")
+version="1.0.1"
+
+help() {
+    echo
+    echo "$script"
+    echo
+    echo 'Description: List all databases in a MySQL/MariaDB Docker container.'
+    echo "Syntax: $script [-c|help]"
+    echo "Example: $script -c mysql01"
+    echo 'options:'
+    echo "  -c    Docker container. Defaults to 'mysql'."
+    echo "  help  Show $script manual."
+    echo
+}
+
+if [[ "$1" == 'help' ]]; then
+    help
+    exit
+fi
+
+container='mysql'
+
+while getopts ":c:" opt; do
+    case $opt in
+        c) container="$OPTARG";;
+        \?) echo "Invalid option -$OPTARG" >&2
+        help
+        exit 1;;
+    esac
+done
+
+image=$(docker inspect "$container" --format='{{.Config.Image}}')
+
+if [[ "$image" =~ 'mariadb' ]]; then
+    docker exec "$container" /bin/bash -c "export MYSQL_PWD=\$MARIADB_ROOT_PASSWORD; mysql -N -h\$HOSTNAME -uroot -e 'show databases;'"
+elif [[ "$image" =~ 'mysql' ]]; then
+    docker exec "$container" /bin/bash -c "export MYSQL_PWD=\$MYSQL_ROOT_PASSWORD; mysql -N -h\$HOSTNAME -uroot -e 'show databases;'"
+fi

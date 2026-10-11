@@ -1,21 +1,18 @@
 ---
-# roles/nginx/tasks/main.yml
+- name: Include {{ role_name }} scripts tasks
+  ansible.builtin.include_tasks: "{{ role_name }}_scripts.yml"
+  tags:
+    - nginx
 
-- name: Install nginx
-  ansible.builtin.apt:
-    name: nginx
-    state: present
-    update_cache: true
+- name: Include {{ role_name }} config tasks
+  ansible.builtin.include_tasks: "{{ role_name }}_config.yml"
+  when: nginx_hostname is defined
+  tags:
+    - nginx
+    - nginx_config
 
-- name: Remove default nginx site
-  ansible.builtin.file:
-    path: /etc/nginx/sites-enabled/default
-    state: absent
-  when: nginx_remove_default_site
-  notify: reload nginx
-
-- name: Ensure nginx service is enabled and running
-  ansible.builtin.systemd:
-    name: nginx
-    enabled: true
-    state: started
+- name: Include {{ role_name }} tasks
+  ansible.builtin.include_tasks: "{{ role_name }}.yml"
+  when: nginx_image is defined
+  tags:
+    - nginx

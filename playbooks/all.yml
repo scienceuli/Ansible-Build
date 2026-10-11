@@ -1,0 +1,102 @@
+---
+- name: All services
+  hosts: setup
+  roles:
+    - role: docker_network
+      tags: docker_network
+    - role: restic_server
+      tags: restic_server
+    - role: s3cmd
+      tags: s3cmd
+    - role: systemd
+      tags: systemd
+    - role: jenkins
+      tags: jenkins
+    - role: dind
+      tags: dind
+    - role: postgres
+      tags: postgres
+    - role: mariadb
+      tags: mariadb
+    - role: mysql
+      tags: mysql
+    - role: bookstack
+      tags: bookstack
+    - role: matomo
+      tags: matomo
+    - role: fathom
+      tags: fathom
+    - role: keycloak
+      tags: keycloak
+    - role: wordpress
+      tags: wordpress
+    - role: pgadmin
+      tags: pgadmin
+    - role: moodle
+      tags: moodle
+    - role: gitea
+      tags: gitea
+    - role: remark42
+      tags: remark42
+    - role: mailhog
+      tags: mailhog
+    - role: dozzle
+      tags: dozzle
+    - role: superset
+      tags: superset
+    - role: simple_mail_forwarder
+      tags: simple_mail_forwarder
+    - role: postfix
+      tags: postfix
+    - role: dribdat
+      tags: dribdat
+    - role: keycloak
+      tags: keycloak
+    - role: pgadmin
+      tags: pgadmin
+    - role: coturn
+      tags: coturn
+    - role: git
+      tags: git
+    - role: php_fpm
+      tags: php_fpm
+    - role: prometheus
+      tags: prometheus
+    - role: promtail
+      tags: promtail
+    - role: loki
+      tags: loki
+    - role: grafana
+      tags: grafana
+    - role: alertmanager
+      tags: alertmanager
+    - role: restic_server
+      tags: restic_server
+    - role: htpasswd
+      tags: htpasswd
+    - role: simple_mail_forwarder
+      tags: simple_mail_forwarder
+    - role: keycloak_client
+      tags: keycloak_client
+    - role: meilisearch
+      tags: meilisearch
+    - role: meilisearch_client
+      tags: meilisearch_client
+    - role: meilisync
+      tags: meilisync
+    - role: n8n
+      tags: n8n
+    - role: mailpit
+      tags: mailpit
+    - role: metabase
+      tags: metabase
+    - role: ollama
+      tags: ollama
+    - role: autossh
+      tags: autossh
+    - role: open_webui
+      tags: open_webui
+    - role: pgbouncer
+      tags: pgbouncer
+    - role: bbb_install
+      tags: bbb_install

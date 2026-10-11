@@ -1,0 +1,39 @@
+---
+- name: Show distribution
+  ansible.builtin.debug:
+    msg: "Distribution: {{ ansible_distribution }}\nMajor Version: {{ ansible_distribution_major_version }}\nPython Version: {{ ansible_python_version }}"
+
+- name: Combine group and host vars
+  ansible.builtin.set_fact:
+    group_packages: "{{ group_packages + host_packages }}"
+  when: host_packages is defined
+
+- name: Include {{ role_name }} apt tasks
+  ansible.builtin.include_tasks: "{{ role_name }}_apt.yml"
+  when: group_packages is defined and (ansible_distribution == 'Ubuntu' or ansible_distribution == 'Debian' or ansible_distribution == 'Pop!_OS')
+  tags:
+    - packages
+
+- name: Include {{ role_name }} yum tasks
+  ansible.builtin.include_tasks: "{{ role_name }}_yum.yml"
+  when: group_packages is defined and ansible_distribution == 'CentOS' and ansible_distribution_major_version == '7'
+  tags:
+    - packages
+
+- name: Include {{ role_name }} dnf tasks
+  ansible.builtin.include_tasks: "{{ role_name }}_dnf.yml"
+  when: group_packages is defined and ansible_distribution in ['CentOS', 'Rocky'] and ansible_distribution_major_version in ['8', '9']
+  tags:
+    - packages
+
+- name: Include {{ role_name }} scripts tasks
+  ansible.builtin.include_tasks: "{{ role_name }}_script.yml"
+  when: script_packages is defined
+  tags:
+    - packages
+
+- name: Include {{ role_name }} pip tasks
+  ansible.builtin.include_tasks: "{{ role_name }}_pip.yml"
+  when: pip_packages is defined
+  tags:
+    - packages

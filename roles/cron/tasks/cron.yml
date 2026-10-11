@@ -1,0 +1,16 @@
+---
+- name: Ensure {{ role_name }} data dir exists
+  ansible.builtin.file:
+    path: "{{ cron_data_dir }}"
+    state: directory
+
+- name: Add bin folder to cron PATH
+  ansible.builtin.cron:
+    name: PATH
+    env: true
+    job: "{{ package_path_var }}"
+
+- name: Add bin folder to system-wide $PATH
+  ansible.builtin.copy:
+    dest: /etc/profile.d/custom-path.sh
+    content: PATH=$PATH:{{ package_path_var }}

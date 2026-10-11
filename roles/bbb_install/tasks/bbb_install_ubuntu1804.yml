@@ -1,0 +1,5 @@
+---
+- name: Execute this command as root
+  ansible.builtin.fail:
+    msg: wget -qO- https://ubuntu.bigbluebutton.org/bbb-install.sh | bash -s -- -v bionic-230 -s {{ bbb_install_hostname }} -e {{ bbb_install_certbot_email }}
+      -a -w

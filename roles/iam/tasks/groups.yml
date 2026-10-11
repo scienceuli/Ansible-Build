@@ -1,0 +1,16 @@
+---
+- name: Add groups
+  ansible.builtin.group:
+    name: "{{ item.name }}"
+    state: present
+  loop: "{{ iam_groups }}"
+
+- name: Apply sudoers commands
+  ansible.builtin.lineinfile:
+    dest: /etc/sudoers
+    state: present
+    regexp: ^%{{ item.name }}
+    line: "%{{ item.name }} ALL=(ALL) NOPASSWD: {{ item.sudoers_commands }}"
+    validate: "visudo -cf %s"
+  when: item.sudoers_commands is defined
+  loop: "{{ iam_groups }}"

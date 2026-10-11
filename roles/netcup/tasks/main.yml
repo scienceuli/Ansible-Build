@@ -1,0 +1,7 @@
+---
+- name: Include {{ role_name }} dns tasks
+  ansible.builtin.include_tasks: "{{ role_name }}_dns.yml"
+  run_once: true
+  when: netcup_dns | default([]) | length > 0
+  tags:
+    - netcup

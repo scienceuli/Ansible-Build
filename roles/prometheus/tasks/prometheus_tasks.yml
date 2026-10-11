@@ -1,0 +1,71 @@
+---
+- name: Create {{ role_name }} volume
+  community.docker.docker_volume:
+    name: "{{ prometheus_volume_name }}"
+
+- name: Ensure {{ role_name }} data dir exists
+  ansible.builtin.file:
+    path: "{{ prometheus_data_dir }}"
+    state: directory
+
+- name: Prepare {{ role_name }} rules dir
+  ansible.builtin.file:
+    path: "{{ prometheus_data_dir }}/rules"
+    state: directory
+
+- name: Extract and filter blackbox target hostnames
+  ansible.builtin.set_fact:
+    src_hostnames: "{{ prometheus_hosts | map('extract', hostvars) | json_query('[*].nginx_proxies[?monitor!=`false` && monitor!=null].src_hostname') | flatten }}"
+
+- name: Extract and filter blackbox target paths
+  ansible.builtin.set_fact:
+    paths: "{{ prometheus_hosts | map('extract', hostvars) | json_query('[*].nginx_proxies[?monitor!=`false` && monitor!=null].monitor') | flatten }}"
+
+- name: Generate blackbox target urls
+  ansible.builtin.set_fact:
+    targets: "{{ src_hostnames | zip(paths) | map('join', '') | map('regex_replace', '^(.*)$', 'https://\\1') | sort }}"
+
+- name: List blackbox targets
+  ansible.builtin.debug:
+    msg: "{{ targets }}"
+
+- name: Check if rules.yml exists
+  ansible.builtin.stat:
+    path: "{{ inventory_dir }}/host_vars/{{ inventory_hostname }}/rules.yml"
+  register: rules_file_stat
+
+- name: Copy {{ role_name }} rules
+  ansible.builtin.copy:
+    src: "{{ inventory_dir }}/host_vars/{{ inventory_hostname }}/rules.yml"
+    dest: "{{ prometheus_data_dir }}/rules/rules.yml"
+  when: rules_file_stat.stat.exists
+
+- name: Copy {{ role_name }} conf
+  ansible.builtin.template:
+    src: prometheus.yml
+    dest: "{{ prometheus_data_dir }}/"
+  notify: Restart {{ role_name }} container
+
+- name: Start {{ role_name }} container {{ prometheus_hostname }}
+  community.docker.docker_container:
+    name: "{{ prometheus_hostname }}"
+    labels:
+      description: "{{ prometheus_description }}"
+    image: "{{ prometheus_image }}"
+    restart_policy: unless-stopped
+    command: >
+      --web.enable-remote-write-receiver
+      --storage.tsdb.retention.time={{ prometheus_retention_time }}
+      --config.file=/etc/prometheus/prometheus.yml
+      --web.enable-admin-api
+    volumes:
+      - "{{ prometheus_volume_name }}:/prometheus"
+      - "{{ prometheus_data_dir }}/prometheus.yml:/etc/prometheus/prometheus.yml"
+      - "{{ prometheus_data_dir }}/rules:/etc/prometheus/rules:ro"
+    ports:
+      - "{{ prometheus_port }}:9090"
+    networks:
+      - name: "{{ docker_network_name }}"
+    # FIXME: explicit setting of network_mode: bridge is just a workaround and shouldn't be necessary
+    network_mode: bridge
+    etc_hosts: "{{ prometheus_etc_hosts }}"

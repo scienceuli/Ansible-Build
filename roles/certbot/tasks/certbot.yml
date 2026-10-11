@@ -1,0 +1,96 @@
+---
+- name: Ensure nginx data dir exists
+  ansible.builtin.file:
+    path: "{{ nginx_data_dir }}/proxies"
+    state: directory
+
+- name: Get list of nginx certs with tls attribute
+  ansible.builtin.stat:
+    path: "{{ certbot_data_dir }}/live/{{ item.src_hostname | replace('*.', '') }}"
+  loop: "{{ nginx_proxies }}"
+  register: certbot_certs
+  when: item.tls is defined and item.tls
+
+- name: Create list of missing certs
+  ansible.builtin.set_fact:
+    certbot_missing_certs: "{{ certbot_certs | json_query('results[*] | [?stat.exists==`false`].item.src_hostname') | list }}"
+  when: nginx_proxies is defined
+
+- name: Log missing certificates
+  ansible.builtin.debug:
+    var: certbot_missing_certs
+
+- name: Copy nginx default conf
+  ansible.builtin.copy:
+    src: default.conf
+    dest: "{{ nginx_data_dir }}/default.conf"
+    force: false
+
+- name: Copy {{ role_name }} nginx config
+  ansible.builtin.template:
+    src: nginx-certbot.conf
+    dest: "{{ nginx_data_dir }}/proxies/{{ item }}.conf"
+  vars:
+    server_name: "{{ item }}"
+  loop: "{{ certbot_missing_certs }}"
+  when: certbot_missing_certs is defined
+
+- name: Get infos on container {{ nginx_hostname }}
+  community.docker.docker_container_info:
+    name: "{{ nginx_hostname }}"
+  register: nginx_container
+
+- name: Restart container {{ nginx_hostname }}
+  community.docker.docker_container:
+    name: "{{ nginx_hostname }}"
+    restart: true
+    state: started
+  when: nginx_container.exists and certbot_missing_certs
+
+- name: Start proxy container {{ nginx_hostname }}
+  community.docker.docker_container:
+    name: "{{ nginx_hostname }}"
+    labels:
+      description: "{{ nginx_description }}"
+    image: "{{ nginx_image }}"
+    ports:
+      - 80:80
+    volumes:
+      - "{{ nginx_data_dir }}/proxies:/etc/nginx/conf.d/proxies/:ro"
+      - "{{ nginx_data_dir }}/default.conf:/etc/nginx/conf.d/default.conf"
+      - "{{ certbot_data_dir }}/:/etc/letsencrypt/"
+      - "{{ certbot_data_dir }}/www/:/var/www/certbot/"
+    networks:
+      - name: "{{ docker_network_name }}"
+  when: not nginx_container.exists and certbot_missing_certs is defined
+
+- name: Wait for proxy container
+  ansible.builtin.pause:
+    seconds: "2"
+  when: certbot_missing_certs is defined
+
+- name: Issue certificate with {{ role_name }}
+  ansible.builtin.command: >-
+    docker run --rm --name {{ item }}
+    -v {{ certbot_data_dir }}/:/etc/letsencrypt/
+    -v {{ certbot_data_dir }}/www/:/var/www/certbot/ {{ certbot_image }}
+    certonly --webroot --email {{ certbot_email }} --agree-tos --webroot-path=/var/www/certbot/ -d {{ item }}
+  loop: "{{ certbot_missing_certs }}"
+  when: certbot_preferred_challenges == 'http' and certbot_missing_certs is defined
+  register: result
+  failed_when: result.stdout is search('Some challenges have failed.') or result.failed
+  changed_when: result.stdout is search('Congratulations!') or not result.failed
+
+- name: Issue certificate with dns-freends authenticator
+  ansible.builtin.command: >-
+    docker run --rm --name {{ item }}
+    -v {{ certbot_data_dir }}/:/etc/letsencrypt/
+    -v {{ certbot_data_dir }}/www/:/var/www/certbot/ {{ certbot_image }} certonly
+    --authenticator dns-freedns --dns-freedns-propagation-seconds 60
+    --dns-freedns-credentials /etc/letsencrypt/.secrets/credentials.ini
+    --email {{ certbot_email }} --agree-tos -d {{ item }}
+  loop: "{{ certbot_missing_certs }}"
+  when: certbot_preferred_challenges == 'dns' and certbot_authenticator == 'dns-freedns' and certbot_missing_certs is defined
+  register: result
+  failed_when: result.stdout is search('Some challenges have failed.') or result.failed
+  changed_when: result.stdout is search('Congratulations!') or not result.failed

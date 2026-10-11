@@ -1,5 +1,5 @@
 ---
-- name: reload nginx
-  ansible.builtin.systemd:
-    name: nginx
-    state: reloaded
+- name: Restart {{ role_name }} container
+  community.docker.docker_container:
+    name: "{{ nginx_hostname }}"
+    restart: true

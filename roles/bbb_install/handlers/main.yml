@@ -1,0 +1,10 @@
+---
+- name: Restart BigBlueButton services
+  ansible.builtin.command: bbb-conf --restart
+  notify: Check BigBlueButton services
+
+- name: Check BigBlueButton services
+  ansible.builtin.command: bbb-conf --status | grep inactive
+  register: bbb_install_status
+  failed_when: bbb_install_status.rc != 0
+  changed_when: false

@@ -1,0 +1,19 @@
+---
+- name: Add {{ role_name }} repo
+  ansible.builtin.get_url:
+    url: "{{ docker_yum_url }}"
+    dest: /etc/yum.repos.d/docker-ce.repo
+
+- name: Enable {{ role_name }} {{ docker_yum_repo }} repo
+  community.general.ini_file:
+    dest: /etc/yum.repos.d/docker-ce.repo
+    section: "{{ docker_yum_repo }}"
+    option: enabled
+    value: "0"
+
+- name: Install required {{ role_name }} packages
+  ansible.builtin.include_role:
+    name: packages
+  vars:
+    group_packages: "{{ docker_packages }}"
+  when: docker_packages is defined

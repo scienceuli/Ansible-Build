@@ -1,0 +1,22 @@
+---
+# Order matters: the network must exist before the compose stack joins it,
+# and eventmanager-web must be running before nginx tests its config
+# (nginx -t resolves the upstream).
+- name: Docker + shared network on faraday
+  hosts: faraday
+  roles:
+    - docker_network
+
+- name: Deploy VFLL Eventmanager
+  hosts: eventmanager
+  become: true
+  roles:
+    - eventmanager
+
+- name: Reverse proxy + TLS on faraday (nginx_proxies in host_vars/faraday)
+  hosts: faraday
+  roles:
+    - role: certbot
+      tags: certbot
+    - role: nginx
+      tags: nginx

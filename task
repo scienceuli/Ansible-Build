@@ -1,0 +1,738 @@
+#!/usr/bin/env bash
+set -e
+
+help-table() {
+    local -a rows
+    local max_cmd=7 max_opt=6 max_desc=11
+
+    rows+=("Command|Option|Description")
+    rows+=("===VISUALIZATION===| | ")
+    rows+=("visualize-dependencies||Visualize Ansible role dependencies.")
+    rows+=("===GALAXY===| | ")
+    rows+=("build-galaxy||Create tarball of collection.")
+    rows+=("publish-galaxy||Publish tarball to Ansible Galaxy.")
+    rows+=("===DOCKER===| | ")
+    rows+=("login-docker|[user][token]|Run Docker login and create docker config.")
+    rows+=("===VAULT===| | ")
+    rows+=("convert-vault-file|[vault_id] [path]|Re-encrypt vault file as single strings.")
+    rows+=("decrypt-file|[path]|Decrypt Ansible Vault file.")
+    rows+=("encrypt-file|[vault_id] [path]|Encrypt file with Ansible Vault.")
+    rows+=("encrypt-string|[vault_id] [key] [value] -q|Generate encrypted string with Ansible Vault.")
+    rows+=("generate-encrypted-string|[vault_id] [key] -q|Generate encrypted string for key with Ansible Vault.")
+    rows+=("generate-vault-password|[vault_id] [password]|Generate a password file for Ansible Vault.")
+    rows+=("show-vault-file|[vault_id] [path]|Show content of encrypted strings or fully encrypted vault file.")
+    rows+=("===SETUP===| | ")
+    rows+=("install||Install Ansible and dependencies with uv.")
+    rows+=("install-ansible-build-scripts|[role]|Install scripts of the specified Ansbile role.")
+    rows+=("install-exo||Install Exoscale CLI.")
+    rows+=("show-passwordless-sudo|[username]|Give instructions to setup passwordless sudo.")
+    rows+=("upgrade||Upgrade Ansible and dependencies with uv.")
+    rows+=("===DEVELOPMENT===| | ")
+    rows+=("lint||Lint Ansible roles and playbooks.")
+    rows+=("source||Source the Python virtual env.")
+    rows+=("===REPORT===| | ")
+    rows+=("get-last-hostname|[role]|Search inventory for \$ROLE_hostname entries.")
+    rows+=("list-hosts|[path] [grep]|Lists all hosts of an inventory.")
+    rows+=("list-roles||Lists all roles.")
+    rows+=("list-vault||Lists vault identities.")
+    rows+=("===GIT===| | ")
+    rows+=("pull-repos||Pull git repos in inventories folder.")
+    rows+=("===RUN===| | ")
+    rows+=("play|[params]|Run ansible-playbook command.")
+    rows+=("list-tags|[path]|List tags of playbook.")
+    rows+=("run||Run ansible command.")
+    rows+=("connect-host|[host][username]|Connect to host with configs.")
+    rows+=("===TEST===| | ")
+    rows+=("test-project|[cleanup]|Deploy to localhost. Pass option 'cleanup' to reset test env.")
+    rows+=("test-scripts|[cleanup]|Install and test scripts. Pass option 'cleanup' to reset test env.")
+
+    for row in "${rows[@]}"; do
+        IFS='|' read -r cmd opt desc <<< "$row"
+        (( ${#cmd} > max_cmd )) && max_cmd=${#cmd}
+        (( ${#opt} > max_opt )) && max_opt=${#opt}
+        (( ${#desc} > max_desc )) && max_desc=${#desc}
+    done
+
+    printf '| %-*s | %-*s | %-*s |\n' \
+        "$max_cmd" "Command" \
+        "$max_opt" "Option" \
+        "$max_desc" "Description"
+
+    printf '|-%*s-|-%*s-|-%*s-|\n' \
+        "$max_cmd" "$(printf '%*s' "$max_cmd" '' | tr ' ' '-')" \
+        "$max_opt" "$(printf '%*s' "$max_opt" '' | tr ' ' '-')" \
+        "$max_desc" "$(printf '%*s' "$max_desc" '' | tr ' ' '-')"
+
+    local first_row=true
+    for row in "${rows[@]:1}"; do
+        IFS='|' read -r cmd opt desc <<< "$row"
+        if [[ "$cmd" =~ ^===.*===$ ]]; then
+            group_name="${cmd/===/}"
+            group_name="${group_name/===/}"
+
+            if [ "$first_row" = true ]; then
+                first_row=false
+            else
+                printf '|-%*s-|-%*s-|-%*s-|\n' \
+                    "$max_cmd" "$(printf '%*s' "$max_cmd" '' | tr ' ' '-')" \
+                    "$max_opt" "$(printf '%*s' "$max_opt" '' | tr ' ' '-')" \
+                    "$max_desc" "$(printf '%*s' "$max_desc" '' | tr ' ' '-')"
+            fi
+
+            local left_pad=$(( (max_cmd - ${#group_name}) / 2 ))
+            local right_pad=$(( max_cmd - left_pad - ${#group_name} ))
+            printf '| %*s%s%*s | %*s | %*s |\n' \
+                "$left_pad" "" \
+                "$group_name" \
+                "$right_pad" "" \
+                "$max_opt" "" \
+                "$max_desc" ""
+
+            printf '|-%*s-|-%*s-|-%*s-|\n' \
+                "$max_cmd" "$(printf '%*s' "$max_cmd" '' | tr ' ' '-')" \
+                "$max_opt" "$(printf '%*s' "$max_opt" '' | tr ' ' '-')" \
+                "$max_desc" "$(printf '%*s' "$max_desc" '' | tr ' ' '-')"
+        else
+            first_row=false
+            printf '| %-*s | %-*s | %-*s |\n' \
+                "$max_cmd" "$cmd" \
+                "$max_opt" "$opt" \
+                "$max_desc" "$desc"
+        fi
+    done
+}
+
+help() {
+    echo
+    if [[ -n "$1" ]]; then
+        help-table | grep -i "$1" | column -t -s'|'
+    else
+        echo 'task <command> [options]'
+        echo
+        echo 'commands:'
+        echo
+        help-table
+    fi
+    echo
+}
+
+# Dynamic env vars
+
+TASK_DOTENV_DIR="$PWD/inventories/dotenv"
+GIT_BRANCH=$(git symbolic-ref --short -q HEAD)
+LLM_MODEL=${LLM_MODEL:="llama"}
+
+if [[ -a ".env" ]]; then
+    export $(cat .env | sed 's/^#.*//g' | xargs)
+fi
+
+# Import commands
+
+clone-taskfile(){
+    if [ ! -d "$HOME/taskfile.build" ]; then
+        echo -e "\033[38;5;214mGit\033[0m: Clone taskfile repo"
+        git clone https://git.taskfile.build "$HOME/taskfile.build"
+    else
+        echo -e "\033[38;5;214mGit\033[0m: Pull taskfile repo"
+        git -C "$HOME/taskfile.build" pull
+    fi
+}
+
+if [ -d "$HOME/taskfile.build/bin" ]; then
+    for file in "$HOME/taskfile.build/bin/"*; do
+        if [ -f "$file" ]; then
+            source "$file"
+        fi
+    done
+fi
+
+# Vault
+
+connect-host() {
+    if [[ -z "$1" ]]; then
+        echo 'Host name cannot be empty'
+        return 1
+    fi
+    local search_host="$1"
+    local override_user="$2"
+
+    # Find hosts.yml/hosts.yaml files in inventories folder
+    local hosts_files
+    hosts_files=$(find ./inventories -type f \( -name 'hosts.yml' -o -name 'hosts.yaml' \))
+
+    # Search for host name match
+    local host_config=""
+    local hosts_file
+    for hosts_file in $hosts_files; do
+
+        local command="yq e '.all.children.*.hosts.$search_host' $hosts_file"
+        host_config=$(eval "$command" | sed '/null/d' | head -5)
+
+        if [[ -z "$host_config" ]]; then
+            command="yq e '.all.children.*.children.*.hosts.$search_host' $hosts_file"
+            host_config=$(eval "$command" | sed '/null/d' | head -5)
+        fi
+
+        if [[ -z "$host_config" ]]; then
+            command="yq e '.all.hosts.$search_host' $hosts_file"
+            host_config=$(eval "$command" | sed '/null/d' | head -5)
+        fi
+
+        if [[ -n "$host_config" ]]; then
+            break
+        fi
+    done
+
+    if [[ -z "$host_config" ]]; then
+        echo "Host '$search_host' not found in hosts.yml/hosts.yaml files"
+        return 1
+    fi
+
+    # Get Ansible vars from the host configuration
+    local ansible_host
+    local ansible_port
+    local ansible_user
+    local ansible_common_args
+    ansible_host=$(echo "$host_config" | grep -m1 '^ansible_host' | cut -d: -f2 | xargs)
+    ansible_port=$(echo "$host_config" | grep -m1 '^ansible_port' | cut -d: -f2 | xargs)
+    ansible_user=$(echo "$host_config" | grep -m1 '^ansible_user' | cut -d: -f2 | xargs)
+    ansible_common_args=$(echo "$host_config" | grep -m1 'ansible_ssh_common_args' | cut -d: -f2 | xargs)
+
+    # Build SSH command using extracted connection details
+    local ssh_command="ssh"
+    if [[ "$ansible_port" != "null" ]] && [[ -n "$ansible_port" ]]; then
+        ssh_command+=" -p $ansible_port"
+    fi
+    if [[ "$ansible_common_args" != "null" ]] && [[ -n "$ansible_common_args" ]]; then
+        ssh_command+=" $ansible_common_args"
+    fi
+
+    # Use override user if provided, else fall back to ansible_user
+    local effective_user="${override_user:-$ansible_user}"
+    if [[ "$effective_user" != "null" ]] && [[ -n "$effective_user" ]]; then
+        ssh_command+=" $effective_user@$ansible_host"
+    else
+        ssh_command+=" $ansible_host"
+    fi
+
+    echo "Run command: $ssh_command"
+    $ssh_command
+}
+
+decrypt-file() {
+    if [[ -z "$1" ]]; then echo '$1 is empty'; exit; fi
+    echo "Decrypt file $1."
+    ansible-vault decrypt --output="$1" "$1"
+}
+
+encrypt-file() {
+    if [[ -z "$1" ]]; then echo '$1 is empty'; exit; fi
+    if [[ -z "$2" ]]; then echo '$2 is empty'; exit; fi
+    echo "Encrypt file $2 with vault id $1."
+    ansible-vault encrypt --encrypt-vault-id="$1" "$2"
+}
+
+list-vault() {
+    grep 'vault_identity_list' ansible.cfg | sed 's/^vault_identity_list = //' | tr ',' '\n' | sed '/^$/d'
+}
+
+generate-vault-password() {
+    if [[ -z "$1" ]]; then echo '$1 is empty'; exit; fi
+    if [[ -z "$2" ]]; then echo '$2 is empty'; exit; fi
+
+    local vault_id="$1"
+    local vaultpassword="$2"
+    export VAULT_ID="$vault_id"
+    export VAULTPASSWORD="$vaultpassword"
+    echo "$vaultpassword" > ".vault_pass_$vault_id"
+    chmod 600 ".vault_pass_$vault_id"
+    echo "Password file .vault_pass_$vault_id created."
+}
+
+encrypt-string() {
+    if [[ -z "$1" ]]; then echo '$1 is empty'; exit; fi
+    if [[ -z "$2" ]]; then echo '$2 is empty'; exit; fi
+    if [[ -z "$3" ]]; then echo '$3 is empty'; exit; fi
+    local string_key="$2"
+    local string_value="$3"
+    # string_key=$(echo "$2" | cut -d ':' -f 1)
+    # string_value=$(echo "$2" | cut -d ':' -f 2 | sed 's/^ *//')
+
+    if [[ "$4" != "-q" ]]; then
+        echo "Found key: $string_key"
+        echo "Encrypting value: $string_value"
+    fi
+    ansible-vault encrypt_string --encrypt-vault-id="$1"  --name "$string_key" "$string_value"
+}
+
+generate-encrypted-string() {
+    if [[ -z "$1" ]]; then echo '$1 is empty'; exit; fi
+    if [[ -z "$2" ]]; then echo '$2 is empty'; exit; fi
+    local string_key="$2"
+    local string_value="$(pwgen -c 20 1)"
+
+    encrypt-string "$1" "$string_key" "$string_value"
+}
+
+convert-vault-file() {
+    if [[ -z "$1" ]]; then echo '$1 is empty'; exit; fi
+    if [[ -z "$2" ]]; then echo '$2 is empty'; exit; fi
+
+    local vault_id="$1"
+    local file_path="$2"
+    local temp_file
+    temp_file=$(mktemp)
+
+    # Decrypt the vault file
+    ansible-vault decrypt --output="$file_path" "$file_path"
+
+    # Process each key-value pair
+    yq eval '.' "$file_path" | while IFS= read -r line; do
+        local key
+        local value
+        key=$(echo "$line" | cut -d':' -f1)
+        value=$(echo "$line" | cut -d':' -f2-)
+        value=$(echo "$value" | sed 's/^[[:space:]"]*//;s/[[:space:]"]*$//')
+
+        # Re-encrypt the key-value pair
+        local encrypted
+        encrypted=$(ansible-vault encrypt_string --encrypt-vault-id="$vault_id" --name "$key" "$value" 2>/dev/null)
+        echo "$encrypted" >> "$temp_file"
+    done
+
+    # Move temp file to vault file
+    mv "$temp_file" "$file_path"
+    echo "Converted file saved as $file_path"
+}
+
+show-vault-file() {
+    if [[ -z "$1" ]]; then echo '$1 is empty'; exit 1; fi
+    if [[ -z "$2" ]]; then echo '$2 is empty'; exit 1; fi
+    local vault_id="$1"
+    local file_path="$2"
+    local temp_file
+    local temp_part_file
+    temp_file=$(mktemp)
+    temp_part_file=$(mktemp)
+
+    if head -n 1 "$file_path" | grep -q "^\$ANSIBLE_VAULT;1.2;AES256;$vault_id"; then
+        ansible-vault decrypt --output="$temp_file" "$file_path"
+    else
+        local write_finished=false
+        local current_key=""
+
+        while IFS= read -r line; do
+            if [[ "$line" =~ "!vault" ]]; then
+                # Process previous vault entry if it exists
+                if [[ "$write_finished" = true ]] && [[ -n "$current_key" ]] && [[ -s "$temp_part_file" ]]; then
+                    ansible-vault decrypt "$temp_part_file"
+                    local value
+                    value=$(cat "$temp_part_file")
+                    echo "$current_key: $value" >> "$temp_file"
+                fi
+
+                # Set up for new vault entry
+                current_key=$(echo "$line" | cut -d':' -f1)
+                : > "$temp_part_file"
+                write_finished=true
+            else
+                if [[ "$write_finished" = true ]]; then
+                    echo "$line" | sed 's/^[[:space:]"]*//;s/[[:space:]"]*$//' >> "$temp_part_file"
+                fi
+            fi
+        done < "$file_path"
+
+        # Process the final vault entry
+        if [[ "$write_finished" = true ]] && [[ -n "$current_key" ]] && [[ -s "$temp_part_file" ]]; then
+            ansible-vault decrypt "$temp_part_file"
+            local value
+            value=$(cat "$temp_part_file")
+            echo "$current_key: $value" >> "$temp_file"
+        fi
+    fi
+
+    bat --paging=always "$temp_file"
+    rm -f "$temp_file"
+    rm -f "$temp_part_file"
+}
+
+# Env
+
+activate-venv() {
+    if [[ -f  ".venv/bin/activate" ]]; then
+        source ".venv/bin/activate"
+    else
+        echo "Could not find .venv/bin/active"
+        echo "Init venv with $(uv --version)"
+        uv venv
+    fi
+}
+
+install() {
+    echo "Ensure Python version $(cat .python-version) is installed."
+    uv python install
+    activate-venv
+
+    echo "Install Ansible and Python dependencies"
+    uv pip install -r requirements.txt
+}
+
+install-exo() {
+    curl -fsSL https://raw.githubusercontent.com/exoscale/cli/master/install-latest.sh | sh
+}
+
+visualize-dependencies() {
+    mkdir -p tmp
+    ./bin/visualize-dependencies ./roles
+    open-with-os tmp/ansible-role-dependencies.html
+}
+
+version() {
+    uv --version
+    echo "python $(cat .python-version)"
+    ansible --version
+}
+
+show-passwordless-sudo() {
+    local user="${1:-$USERNAME}"
+    echo "echo \"$user ALL=(ALL) NOPASSWD: ALL\" >> /etc/sudoers"
+}
+
+# Run
+
+play() {
+    ansible-playbook "$@"
+}
+
+list-tags() {
+    if [[ -z "$1" ]]; then echo '$1 is empty'; exit 1; fi
+    ansible-playbook "$1" --list-tags
+}
+
+run() {
+    ansible "$@"
+}
+
+upgrade() {
+    echo "Update Ansible"
+    uv pip install --upgrade ansible
+}
+
+lint() {
+    ansible-lint --fix --offline roles/*
+}
+
+# Report
+
+list-hosts() {
+    if [[ -z "$1" ]]; then echo '$1 is empty'; exit; fi
+
+    local grep_filter="$2"
+
+    find "$1" \( -name 'hosts.yml' -o -name 'hosts.yaml' \) | sort | while read -r hosts_file; do
+        echo -e "\n<<< $hosts_file >>>\n"
+
+        local aliases
+        aliases=$(yq e '.. | select(has("ansible_host")) | (path | .[-1])' "$hosts_file")
+        local hosts
+        hosts=$(yq e '.. | select(has("ansible_host")) | .ansible_host' "$hosts_file")
+        local functions
+        functions=$(yq e '.. | select(has("ansible_host")) | .function // ""' "$hosts_file")
+        local customers
+        customers=$(yq e '.. | select(has("ansible_host")) | .customer // ""' "$hosts_file")
+        local providers
+        providers=$(yq e '.. | select(has("ansible_host")) | .hosting_provider // ""' "$hosts_file")
+
+        if [[ -z "$aliases" || -z "$hosts" ]]; then
+            echo "No hosts found in $hosts_file"
+            continue
+        fi
+
+        local alias_width=25
+        local host_width=30
+        local func_width=25
+        local cust_width=33
+        local prov_width=20
+        local column="| %-${alias_width}s | %-${host_width}s | %-${func_width}s | %-${cust_width}s | %-${prov_width}s |\n"
+        printf "$column" 'Alias' 'Host' 'Function' 'Customer' 'Provider'
+        echo "|$(printf '%*s' $((alias_width + 2)) '' | tr ' ' '-')|$(printf '%*s' $((host_width + 2)) '' | tr ' ' '-')|$(printf '%*s' $((func_width + 2)) '' | tr ' ' '-')|$(printf '%*s' $((cust_width + 2)) '' | tr ' ' '-')|$(printf '%*s' $((prov_width + 2)) '' | tr ' ' '-')|"
+        paste <(echo "$aliases") <(echo "$hosts") <(echo "$functions") <(echo "$customers") <(echo "$providers") | sort -t$'\t' -k1,1 -k4,4r | awk -F'\t' '!seen[$1]++' | while IFS=$'\t' read -r alias host function customer provider; do
+            local row
+            row=$(printf "$column" "$alias" "$host" "$function" "$customer" "$provider")
+            if [[ -z "$grep_filter" ]] || echo "$row" | grep -qi "$grep_filter"; then
+                echo "$row"
+            fi
+        done
+    done
+}
+
+list-roles() {
+    local role_width=25
+    local kind_width=15
+    local description_width=50
+    local column="| %-${role_width}s | %-${kind_width}s | %-${description_width}s |\n"
+    printf "$column" 'Role' 'Kind' 'Description'
+    echo "|$(printf '%*s' $((role_width + 2)) '' | tr ' ' '-')|$(printf '%*s' $((kind_width + 2)) '' | tr ' ' '-')|$(printf '%*s' $((description_width + 2)) '' | tr ' ' '-')|"
+
+    local md_files
+    md_files=$(find roles -name 'README.md' | sort)
+    local readme
+    for readme in $md_files; do
+        local role
+        role=$(basename "$(dirname "$readme")")
+        local kind
+        kind=$(grep "^kind:" "$readme" | sed 's/kind: //')
+        local description
+        description=$(sed -n '5,$p' "$readme" | grep -v '^$' | grep -v '<img' | grep -v '^#' | head -1)
+        printf "$column" "$role" "$kind" "$description"
+    done
+}
+
+get-last-hostname() {
+    if [[ -z "$1" ]]; then echo '$1 is empty'; exit; fi
+    local role="$1"
+
+    echo "Search inventories folder for '${role}_hostname: $role'"
+    local all_hostnames
+    all_hostnames=$(rg -I --no-ignore "^${role}_hostname: ${role}.+" inventories | cut -d' ' -f2 | sort -u)
+
+    local highest
+    highest=$(echo "$all_hostnames" | sed "s/${role}//g" | sort -n | tail -1)
+    echo "Highest hostname: ${role}$highest"
+    echo "Free hostnames:"
+    for i in $(seq 1 $highest); do
+        local num
+        num=$(printf "%02d" $i)
+        local hostname="${role}${num}"
+
+        if ! echo "$all_hostnames" | grep -q "$hostname"; then
+            echo "$hostname"
+        fi
+    done
+}
+
+pull-repos() {
+    local git_folder
+    for git_folder in $(find inventories -name .git); do
+        local repo
+        repo=$(dirname "$git_folder")
+        echo "Pull repo $repo."
+        git -C "$repo" pull
+    done
+}
+
+
+# Galaxy
+
+build-galaxy() {
+    local version=$(yq eval '.version' galaxy.yml)
+    local namespace=$(yq eval '.namespace' galaxy.yml)
+    local name=$(yq eval '.name' galaxy.yml)
+
+    ansible-galaxy collection build
+    mv $namespace-$name-$version.tar.gz tmp/
+}
+
+publish-galaxy() {
+    local version=$(yq eval '.version' galaxy.yml)
+    local namespace=$(yq eval '.namespace' galaxy.yml)
+    local name=$(yq eval '.name' galaxy.yml)
+
+    ansible-galaxy collection publish tmp/$namespace-$name-$version.tar.gz --token "$GALAXY_API_TOKEN"
+}
+
+# Test commands
+
+test-project() {
+    version
+    if [[ "$1" = "cleanup" ]]; then
+        echo "Cleanup localhost"
+        ansible-playbook -i test_inventory plays/cleanup.yml -t "odoo,odoo_data,odoo_volume,\
+            postgres,postgres_data,postgres_volume,\
+            meilisearch,meilisearch_data,meilisearch_volume,\
+            pgadmin,pgadmin_data,pgadmin_volume,\
+            n8n,n8n_data,n8n_volume,\
+            node_exporter,node_exporter_data,\
+            nginx,nginx_data,nginx_volume,\
+            metabase,metabase_data,metabase_volume,\
+            prometheus,prometheus_data,prometheus_volume,\
+            grafana,grafana_data,grafana_volume,\
+            loki,loki_data,loki_volume,\
+            promtail,promtail_data,promatil_volume,\
+            docker_compose,docker_compose_data"
+    else
+        echo "Setup localhost"
+        ansible-playbook -i test_inventory plays/localhost.yml --skip-tags check
+
+        echo "Curl the services and check HTTP code."
+
+        local fail=0
+
+        local code=$(curl -o /dev/null -s -w "%{http_code}" -L "http://n8n.local:8080")
+        [[ $code -eq 200 ]] || { echo "http://n8n.local:8080 -> $code"; fail=1; }
+
+        local code=$(curl -o /dev/null -s -w "%{http_code}" -L "http://odoo.local:8080")
+        [[ $code -eq 200 ]] || { echo "http://odoo.local:8080 -> $code"; fail=1; }
+
+        local code=$(curl -o /dev/null -s -w "%{http_code}" -L "http://odoo.local:8080/website/info")
+        [[ $code -eq 403 ]] || { echo "http://odoo.local:8080/website/info -> $code"; fail=1; }
+
+        #FIXME: Metabase container does not work GitHub Runner env.
+        # local code=$(curl -o /dev/null -s -w "%{http_code}" -L "http://metabase.local:8080")
+        # [[ $code -eq 200 ]] || { echo "http://metabase.local:8080 -> $code"; fail=1; }
+
+        local code=$(curl -o /dev/null -s -w "%{http_code}" -L "http://grafana.local:8080")
+        [[ $code -eq 200 ]] || { echo "http://grafana.local:8080 -> $code"; fail=1; }
+
+        echo "Exit code is: $fail"
+        if [[ $fail -eq 1 ]]; then
+            echo "Show Docker container status..."
+            docker ps
+            # echo "Show Docker container logs..."
+            # containers=$(docker ps -a --format "{{.Names}}:{{.Status}}")
+            # while IFS= read -r container; do
+            #     name="${container%%:*}"
+            #     echo "<<< $container >>>"
+            #     if docker logs --tail 50 --timestamps "$name" 2>/dev/null | grep -q .; then
+            #         docker logs --tail 50 --timestamps "$name" 2>/dev/null
+            #     else
+            #         echo "No logs available for $name"
+            #     fi
+            #     echo ""
+            # done <<< "$containers"
+        fi
+        exit $fail
+    fi
+}
+
+test-scripts() {
+    set -e
+
+    if [[ "$1" = "cleanup" ]]; then
+        echo -e "\033[38;5;214mTEST\033[0m: Cleanup test environment."
+        ansible localhost -m ansible.builtin.cron -a 'name="test" state="absent"'
+        ansible-playbook -i test_inventory plays/cleanup.yml -t "odoo,odoo_data,odoo_volume,\
+            postgres,postgres_data,postgres_volume"
+    else
+        echo -e "\033[38;5;214mTEST\033[0m: Test restic scripts"
+        sudo ./roles/cron/files/install
+
+        # Add cron job
+        ansible localhost -m ansible.builtin.cron -a 'name="test" minute="0" hour="*/6" job="echo \"test\""'
+
+        # List cron job and compare output
+        [[ "$(cron-job-list)" == "[1] 0 */6 * * * test" ]]
+        cron-job-run -i 1
+
+        echo -e "\033[38;5;214mTEST\033[0m: Test postgres scripts"
+        sudo ./roles/postgres/files/install
+
+        # Start postgres container
+        ansible-playbook -i test_inventory plays/localhost.yml -t postgres
+
+        docker-postgres-create -c postgres01 -d test
+        docker-postgres-list -c postgres01 | grep "test"
+        docker-postgres-shell -c postgres01 -d test -s 'CREATE TABLE example(id int);'
+        docker-postgres-duplicate -c postgres01 -s test -t example
+        docker-postgres-drop -c postgres01 -d test
+        docker-postgres-size -c postgres01 -d example | grep "0 bytes"
+        docker-postgres-backup -c postgres01 -d example
+        docker-postgres-restore -c postgres01 -f /var/tmp/postgres01/example.sql -d test -i
+        docker-postgres-size -c postgres01 -d test | grep "0 bytes"
+        mkdir -p tmp
+        echo 'DROP TABLE example;' > tmp/drop.sql
+        docker-postgres-patch -c postgres01 -d test -f ./tmp/drop.sql
+        docker-postgres-rename -c postgres01 -s test -t example -r
+    fi
+}
+
+# Docs
+
+docs() {
+    echo "Update roles.md"
+    echo "# Roles" > "roles.md"
+    echo "" >> "roles.md"
+    echo "| Logo | Role | Kind | Description |" >> "roles.md"
+    echo "| --- | --- | --- | --- |" >> "roles.md"
+
+    local md_files=$(find roles -name 'README.md' | sort)
+    for readme in $md_files; do
+        local role
+        role=$(basename "$(dirname "$readme")")
+        local kind
+        kind=$(grep "^kind:" "$readme" | sed 's/kind: //')
+        local description
+        description=$(sed -n '5,$p' "$readme" | grep -v '^$' | grep -v '<img' | grep -v '^#' | head -1)
+        echo "| ![$role logo](/logos/$role.png)  | [$role]($readme) | $kind | $description |" >> "roles.md"
+    done
+}
+
+update-roles-doc() {
+    local md_files=$(find roles -name 'README.md' | sort)
+    for readme in $md_files; do
+        local role
+        role=$(basename "$(dirname "$readme")")
+
+        echo "Update README of $role role."
+
+        local kind
+        kind=$(grep "^kind:" "$readme" | sed 's/kind: //')
+        local logo_line="<img src=\"/logos/$role.png\" alt=\"$role logo\" width=\"100\" height=\"100\">"
+        local tmpfile
+        tmpfile=$(mktemp)
+
+        # Check if README already starts with frontmatter
+        if head -1 "$readme" | grep -q "^---$"; then
+            # Already has frontmatter at top, rebuild with single logo
+            {
+                echo "---"
+                echo "kind: $kind"
+                echo "---"
+                echo ""
+                echo "$logo_line"
+                echo ""
+                # Get content after frontmatter (skip first 5 lines), remove duplicate logo
+                tail -n +6 "$readme" | grep -v "^<img src"
+            } > "$tmpfile" && mv "$tmpfile" "$readme"
+        else
+            # No frontmatter at top, add it and remove duplicates
+            {
+                echo "---"
+                echo "kind: $kind"
+                echo "---"
+                echo ""
+                echo "$logo_line"
+                echo ""
+                # Skip first 8 lines (logo, blank, frontmatter 3 lines, blank, logo, blank)
+                tail -n +9 "$readme"
+            } > "$tmpfile" && mv "$tmpfile" "$readme"
+        fi
+    done
+}
+
+if [[ "$1" == *","* ]]; then
+    # Split comma-separated commands
+    IFS=',' read -ra COMMANDS <<< "$1"
+    for cmd in "${COMMANDS[@]}"; do
+        # Trim whitespace
+        cmd=$(echo "$cmd" | xargs)
+        if declare -f "$cmd" > /dev/null; then
+            "$cmd"
+        else
+            echo "Unknown command: $cmd"
+            help
+            exit 1
+        fi
+    done
+elif declare -f "$1" > /dev/null; then
+    activate-venv || true
+    "$1" "${@:2}"
+else
+    case "$1" in
+        *)
+            echo "Unknown command: $1"
+            help
+            exit 1
+            ;;
+    esac
+fi

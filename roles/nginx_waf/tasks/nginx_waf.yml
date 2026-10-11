@@ -1,0 +1,39 @@
+---
+- name: Include nginx role and apply nginx_config tasks
+  ansible.builtin.include_role:
+    name: nginx
+    tasks_from: nginx_config
+
+- name: Copy rule tuning conf
+  ansible.builtin.template:
+    src: "{{ item }}"
+    dest: "{{ nginx_data_dir }}/{{ item }}"
+  loop:
+    - REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf
+    - RESPONSE-999-EXCLUSION-RULES-AFTER-CRS.conf
+
+- name: Start {{ role_name }} container {{ nginx_waf_hostname }}
+  community.docker.docker_container:
+    name: "{{ nginx_waf_hostname }}"
+    labels:
+      description: "{{ nginx_waf_description }}"
+    image: "{{ nginx_waf_image }}"
+    restart_policy: unless-stopped
+    ports:
+      - "{{ nginx_waf_http_port }}:80"
+      - "{{ nginx_waf_https_port }}:443"
+    volumes:
+      - "{{ nginx_data_dir }}/proxies:/etc/nginx/conf.d/proxies/:ro"
+      - "{{ nginx_data_dir }}/default.conf:/etc/nginx/conf.d/default.conf"
+      - "{{ certbot_data_dir }}/:/etc/letsencrypt/"
+      - "{{ certbot_data_dir }}/www/:/var/www/certbot/"
+      - "{{ nginx_data_dir }}/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf:/etc/modsecurity.d/owasp-crs/rules/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf"
+      - "{{ nginx_data_dir }}/RESPONSE-999-EXCLUSION-RULES-AFTER-CRS.conf:/etc/modsecurity.d/owasp-crs/rules/RESPONSE-999-EXCLUSION-RULES-AFTER-CRS.conf"
+    env:
+      PROXY: "1"
+      MODSEC_RULE_ENGINE: "{{ nginx_waf_modsec_rule_engine }}"
+      ANOMALY_INBOUND: "{{ nginx_waf_anomaly_inbound }}"
+      ALLOWED_METHODS: "{{ nginx_waf_allowed_methods }}"
+      HOSTNAME: "{{ nginx_waf_hostname }}"
+    networks:
+      - name: "{{ docker_network_name }}"

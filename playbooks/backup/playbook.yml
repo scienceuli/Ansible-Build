@@ -1,0 +1,20 @@
+---
+# Restic REST server behind nginx + Let's Encrypt (all as Docker containers),
+# storing the repositories on the netcup NFS storage space (/mnt/sdb).
+# Run the server baseline first:
+#
+#   uv run ansible-playbook -i inventories playbooks/setup.yml -l backup
+#   uv run ansible-playbook -i inventories playbooks/backup/playbook.yml
+#
+# Order matters: restic01 must be running before nginx tests its config
+# (nginx -t resolves the upstream), and certbot issues the certificate via a
+# temporary port-80-only nginx before the real one starts with TLS.
+- name: Restic backup server
+  hosts: backup
+  roles:
+    - role: restic_server
+      tags: restic_server
+    - role: certbot
+      tags: certbot
+    - role: nginx
+      tags: nginx

@@ -1,0 +1,41 @@
+---
+- name: Update root user's password
+  ansible.builtin.user:
+    name: root
+    password: "{{ iam_root_password | password_hash('sha512') }}"
+  when: iam_root_password is defined and iam_root_password
+
+- name: Setup users
+  ansible.builtin.user:
+    name: "{{ item.username }}"
+    comment: "{{ item.comment | default('') }}"
+    shell: "{{ item.shell | default('/bin/bash') }}"
+    groups: "{{ item.groups[inventory_hostname_short] | default(item.groups.all) | default('') }}"
+    append: true
+  loop: "{{ iam_users }}"
+  when: item.hosts is defined and inventory_hostname_short in item.hosts
+
+# FIXME: Passwort does not work if not set manually
+- name: Set user passwords
+  ansible.builtin.user:
+    name: "{{ item.username }}"
+    password: "{{ item.password | password_hash('sha512') }}"
+  loop: "{{ iam_users }}"
+  when: item.hosts is defined and inventory_hostname_short in item.hosts and item.password is defined
+
+- name: Set authorized key
+  ansible.posix.authorized_key:
+    user: "{{ item.username }}"
+    key: "{{ item.ssh_public_key }}"
+  loop: "{{ iam_users }}"
+  when: item.hosts is defined and inventory_hostname_short in item.hosts and item.ssh_public_key is defined
+
+- name: Copy ssh private key
+  ansible.builtin.copy:
+    content: "{{ item.ssh_private_key | b64decode }}"
+    dest: /home/{{ item.username }}/.ssh/id_ed25519
+    owner: "{{ item.username }}"
+    group: "{{ item.username }}"
+    mode: "0700"
+  loop: "{{ iam_users }}"
+  when: item.hosts is defined and inventory_hostname_short in item.hosts and item.ssh_private_key is defined

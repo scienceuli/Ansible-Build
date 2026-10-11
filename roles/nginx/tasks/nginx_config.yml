@@ -1,0 +1,77 @@
+---
+- name: Ensure {{ role_name }} data dir exists
+  ansible.builtin.file:
+    path: "{{ nginx_data_dir }}/proxies"
+    state: directory
+
+- name: Ensure {{ role_name }} static dir exists
+  ansible.builtin.file:
+    path: "{{ nginx_data_dir }}/static"
+    state: directory
+
+- name: Copy nginx conf files
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ nginx_data_dir }}/"
+  loop:
+    - proxy-params.conf
+    - options-ssl-nginx.conf
+    - ssl-dhparams.pem
+
+- name: Copy nginx default conf
+  ansible.builtin.template:
+    src: default.conf
+    dest: "{{ nginx_data_dir }}/default.conf"
+
+- name: Copy nginx static files
+  ansible.builtin.copy:
+    src: "maintenance.html"
+    dest: "{{ nginx_data_dir }}/static/maintenance.html"
+
+- name: Get list of running container names
+  ansible.builtin.command: docker ps --format "{% raw %}{{.Names}}{% endraw %}"
+  register: running_containers
+  changed_when: false
+
+- name: Copy {{ role_name }} conf
+  ansible.builtin.template:
+    src: nginx-proxy.conf
+    dest: "{{ nginx_data_dir }}/proxies/{{ item.src_hostname | replace('*.', 'wildcard.') }}.conf"
+  vars:
+    upstreams: "{{ item.upstreams | default(false) }}"
+    src_hostname: "{{ item.src_hostname }}"
+    dest_hostname: "{{ item.dest_hostname | default('') }}"
+    dest_replicas: "{{ item.dest_replicas | default([]) }}"
+    dest_port: "{{ item.dest_port | default(80)  }}"
+    options: "{{ item.options | default('') }}"
+    maintenance_redirect: "{{ item.maintenance_redirect | default(false) }}"
+    redirect_hostname: "{{ item.redirect_hostname | default(false) }}"
+    redirect_code: "{{ item.redirect_code | default(301) }}"
+    redirect_url: "{{ item.redirect_url | default(false) }}"
+    root: "{{ item.root | default(false) }}"
+    tls: "{{ item.tls | default(false) }}"
+    dns: "{{ item.dns | default(false) }}"
+    locations: "{{ item.locations | default(false) }}"
+    server_names: "{{ item.server_names | default(false) }}"
+    cache: "{{ item.cache | default(false) }}"
+    limit_req_zone: "{{ item.limit_req_zone | default(false) }}"
+  loop: "{{ nginx_proxies }}"
+  notify: Restart {{ role_name }} container
+  when: nginx_proxies is defined
+
+- name: Register {{ role_name }} conf files
+  ansible.builtin.shell: "find {{ nginx_data_dir }}/proxies/ -type f -name '*.conf' -printf '%f\n'"
+  changed_when: false
+  register: nginx_proxy_conf_files
+
+- name: Create managed file list from proxy list
+  ansible.builtin.set_fact:
+    managed_files: "{{ nginx_proxies | map(attribute='src_hostname') | map('replace', '*.', 'wildcard.') | map('regex_replace', '^(.*)$', '\\1.conf') | list }}"
+  when: nginx_proxies is defined
+
+- name: Remove unmanaged {{ role_name }} conf files
+  ansible.builtin.file:
+    path: "{{ nginx_data_dir }}/proxies/{{ item }}"
+    state: absent
+  loop: "{{ nginx_proxy_conf_files.stdout_lines }}"
+  when: item not in managed_files

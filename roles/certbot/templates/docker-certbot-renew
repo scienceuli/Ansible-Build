@@ -1,0 +1,18 @@
+#!/bin/bash
+
+{% if certbot_preferred_challenges == 'http' %}
+docker run --rm --name {{ certbot_hostname }}-tmp \
+-v "{{ certbot_data_dir }}/:/etc/letsencrypt/" \
+-v "{{ certbot_data_dir }}/www/:/var/www/certbot/" \
+{{ certbot_image }} \
+renew --webroot --webroot-path /var/www/certbot
+{% endif %}
+
+{% if certbot_preferred_challenges == 'dns' and certbot_authenticator == 'dns-freedns' %}
+docker run --rm --name {{ certbot_hostname }}-tmp \
+-v "{{ certbot_data_dir }}/:/etc/letsencrypt/" \
+-v "{{ certbot_data_dir }}/www/:/var/www/certbot/" \
+{{ certbot_image }} \
+renew --authenticator dns-freedns --dns-freedns-propagation-seconds 60 \
+--dns-freedns-credentials /etc/letsencrypt/.secrets/credentials.ini
+{% endif %}

@@ -1,0 +1,35 @@
+---
+- name: Ensure {{ role_name }} data dir exists
+  ansible.builtin.file:
+    path: "{{ docker_compose_data_dir }}"
+    state: directory
+    group: "{{ docker_group }}"
+    mode: "0770"
+
+- name: Copy {{ role_name }} dotenv
+  ansible.builtin.template:
+    src: dotenv
+    dest: "{{ docker_compose_data_dir }}/.env"
+  notify: Restart {{ role_name }} project
+
+- name: Copy {{ role_name }} config
+  ansible.builtin.template:
+    src: docker-compose.yml
+    dest: "{{ docker_compose_data_dir }}/docker-compose.yml"
+  notify: Restart {{ role_name }} project
+  when: docker_compose_definition is defined
+
+- name: Include docker volume role
+  ansible.builtin.include_role:
+    name: docker_volume
+  vars:
+    docker_volumes: "{{ docker_compose_volumes }}"
+  when: docker_compose_volumes is defined
+
+- name: Start {{ role_name }} project
+  ansible.builtin.command: docker compose -p {{ docker_compose_project_name }} up -d
+  args:
+    chdir: "{{ docker_compose_data_dir }}"
+  register: result
+  changed_when: "'up-to-date' not in result.stderr"
+  when: docker_compose_definition is defined

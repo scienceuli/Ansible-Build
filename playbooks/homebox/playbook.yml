@@ -13,7 +13,7 @@
         validate: "visudo -cf %s"
   roles:
     - docker
-    - nginx
+    - nginx_host
     - mosquitto
 
 - name: Deploy HomeBox

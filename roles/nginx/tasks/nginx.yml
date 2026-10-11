@@ -1,0 +1,62 @@
+---
+- name: Copy {{ role_name }} scripts
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /usr/local/bin/{{ item }}
+    mode: +x
+  loop:
+    - docker-nginx-reload
+    - docker-nginx-enable
+    - get-public-ip
+
+- name: Init {{ role_name }} volume vars
+  ansible.builtin.set_fact:
+    nginx_volumes:
+      - "{{ nginx_data_dir }}:/etc/nginx/conf.d"
+
+- name: Append Certbot volume vars
+  ansible.builtin.set_fact:
+    nginx_volumes: "{{ nginx_volumes + [certbot_data_dir + '/:/etc/letsencrypt/', certbot_data_dir + '/www/:/var/www/certbot/'] }}"
+  when: certbot_data_dir is defined
+
+- name: Append Acme.sh volume vars
+  ansible.builtin.set_fact:
+    nginx_volumes: "{{ nginx_volumes + [acme_sh_data_dir + '/:/etc/nginx/certs/'] }}"
+  when: acme_sh_data_dir is defined
+
+- name: Append extra volume vars
+  ansible.builtin.set_fact:
+    nginx_volumes: "{{ nginx_volumes + nginx_extra_volumes }}"
+  when: nginx_extra_volumes is defined
+
+- name: Build docker run command with network and volumes
+  ansible.builtin.set_fact:
+    nginx_test_cmd: >
+      docker run --rm
+      {% for vol in nginx_volumes %}
+      -v {{ vol }} {% endfor %}
+      --network {{ docker_network_name }}
+      {{ nginx_image }}
+      nginx -t
+
+- name: Test nginx config in temporary container
+  ansible.builtin.command: "{{ nginx_test_cmd }}"
+  register: nginx_test_result
+  failed_when: nginx_test_result.rc != 0
+  changed_when: false
+  tags:
+    - check
+
+- name: Start {{ role_name }} container {{ nginx_hostname }}
+  community.docker.docker_container:
+    name: "{{ nginx_hostname }}"
+    hostname: "{{ role_name }}.internal"
+    labels:
+      description: "{{ nginx_description }}"
+    image: "{{ nginx_image }}"
+    restart_policy: unless-stopped
+    ports: "{{ nginx_ports | default([]) }}"
+    volumes: "{{ nginx_volumes }}"
+    networks:
+      - name: "{{ docker_network_name }}"
+    network_mode: bridge

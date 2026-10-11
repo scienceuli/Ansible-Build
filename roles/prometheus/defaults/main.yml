@@ -1,0 +1,25 @@
+---
+prometheus_port: 127.0.0.1:9090
+prometheus_description: Prometheus
+prometheus_volume_name: "{{ prometheus_hostname }}"
+prometheus_data_dir: /usr/share/{{ prometheus_hostname }}
+prometheus_hosts: "{{ groups['all'] }}"
+prometheus_etc_hosts: {}
+prometheus_basic_auth_username: prometheus
+prometheus_basic_auth_password: "{{ vault_prometheus_basic_auth_password }}"
+prometheus_retention_time: 30d
+prometheus_alertmanager_basic_auth_password: "{{ vault_prometheus_alertmanager_basic_auth_password }}"
+prometheus_node_exporter_basic_auth_password: "{{ vault_prometheus_node_exporter_basic_auth_password }}"
+prometheus_cadvisor_basic_auth_password: "{{ vault_prometheus_cadvisor_basic_auth_password }}"
+prometheus_nextcloud_exporter_basic_auth_password: "{{ vault_prometheus_nextcloud_exporter_basic_auth_password }}"
+prometheus_bigbluebutton_exporter_basic_auth_password: "{{ vault_prometheus_bigbluebutton_exporter_basic_auth_password }}"
+prometheus_postgres_exporter_basic_auth_password: "{{ vault_prometheus_postgres_exporter_basic_auth_password }}"
+prometheus_restic_server_basic_auth_password: "{{ vault_prometheus_restic_server_basic_auth_password }}"
+prometheus_mysqld_exporter_basic_auth_password: "{{ vault_prometheus_mysqld_exporter_basic_auth_password }}"
+prometheus_odoo_exporter_basic_auth_password: "{{ vault_prometheus_odoo_exporter_basic_auth_password }}"
+prometheus_n8n_exporter_basic_auth_password: "'{{ vault_prometheus_n8n_exporter_basic_auth_password }}'"
+prometheus_meilisearch_exporter_api_key: "{{ vault_prometheus_meilisearch_exporter_api_key }}"
+prometheus_uptime_kuma_exporter_basic_auth_password: "{{ vault_prometheus_uptime_kuma_exporter_basic_auth_password }}"
+prometheus_alerting: {}
+prometheus_custom_scrapers: ""
+prometheus_write_endpoint_enabled: false

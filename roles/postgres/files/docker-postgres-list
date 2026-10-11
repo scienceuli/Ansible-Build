@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -e
+
+script=$(basename "$0")
+version="1.0.1"
+
+help() {
+    echo
+    echo "$script"
+    echo
+    echo 'Description: List all databases in Postgres Docker container.'
+    echo "Syntax: $script [-c|help]"
+    echo 'Example: $script -c postgres01'
+    echo 'options:'
+    echo "  -c    Docker container. Defaults to 'postgres'."
+    echo "  help  Show $script manual."
+    echo
+}
+
+if [[ "$1" == 'help' ]]; then
+    help
+    exit 0
+fi
+
+container='postgres'
+while getopts ":c:" opt; do
+  case $opt in
+    c) container="$OPTARG";;
+    \?) echo "Invalid option -$OPTARG" >&2; help; exit 1;;
+  esac
+done
+
+[[ -z "$container" ]] && { echo 'Container name is required'; exit 1; }
+
+docker exec \
+  --env PGPASSWORD="$(docker exec "$container" printenv POSTGRES_PASSWORD)" \
+  "$container" \
+  psql -U "$(docker exec "$container" printenv POSTGRES_USER)" \
+  -h localhost -p 5432 -d postgres -tAc "SELECT datname FROM pg_database WHERE datistemplate = false AND datname NOT IN ('postgres', 'template0', 'template1');"

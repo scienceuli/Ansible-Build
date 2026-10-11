@@ -1,0 +1,78 @@
+---
+- name: Ensure rclone is installed
+  ansible.builtin.package:
+    name: rclone
+    state: present
+
+- name: Ensure {{ role_name }} config dir exists
+  ansible.builtin.file:
+    path: ~/.config/rclone/
+    state: directory
+    mode: "0700"
+
+# Holds sftp passwords (obscured, i.e. reversible) - root only
+- name: Copy {{ role_name }} conf
+  ansible.builtin.template:
+    src: rclone.conf
+    dest: ~/.config/rclone/rclone.conf
+    mode: "0600"
+
+# Per-remote key for sftp (e.g. a Hetzner Storage Box sub-account), so no
+# personal key or password has to live on the server. The public key is
+# printed below; authorize it on the remote once.
+- name: Generate ssh key for sftp remotes
+  ansible.builtin.command:
+    argv: [ssh-keygen, -t, ed25519, -N, "", -C, "rclone-{{ item.name }}@{{ inventory_hostname }}", -f, "{{ item.key_file }}"]
+    creates: "{{ item.key_file }}"
+  loop: "{{ rclone_sync }}"
+  when: item.dest_provider == "sftp" and item.key_file is defined
+
+- name: Read sftp public keys
+  ansible.builtin.slurp:
+    src: "{{ item.key_file }}.pub"
+  register: rclone_sftp_pubkeys
+  loop: "{{ rclone_sync }}"
+  when: item.dest_provider == "sftp" and item.key_file is defined
+
+- name: Show sftp public keys (authorize them on the remote)
+  ansible.builtin.debug:
+    msg: "{{ item.item.name }}: {{ item.content | b64decode | trim }}"
+  loop: "{{ rclone_sftp_pubkeys.results }}"
+  loop_control:
+    label: "{{ item.item.name | default('') }}"
+  when: item.content is defined
+
+# rclone only verifies sftp host keys when known_hosts_file is set. Pin every
+# key type the server offers: rclone (Go) may negotiate any of them and treats
+# a known host without that type as "key mismatch".
+- name: Pin sftp host keys
+  ansible.builtin.known_hosts:
+    path: "{{ item.0.known_hosts_file }}"
+    name: "{{ item.1.split(' ')[0] }}"
+    key: "{{ item.1 }}"
+  loop: "{{ rclone_sync | selectattr('dest_provider', 'equalto', 'sftp') | selectattr('known_hosts_file', 'defined') | subelements('host_keys', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.1.split(' ')[:2] | join(' ') }}"
+
+- name: Verify source path exists
+  ansible.builtin.command: ls {{ item.source }}
+  changed_when: false
+  loop: "{{ rclone_sync }}"
+  when: item.source_provider == "filesystem"
+
+- name: Verify dest path exists
+  ansible.builtin.command: ls {{ item.dest }}
+  changed_when: false
+  loop: "{{ rclone_sync }}"
+  when: item.dest_provider == "filesystem"
+
+- name: Register rclone copy commands
+  ansible.builtin.cron:
+    name: Rclone job {{ item.id }}
+    hour: "{{ item.hour | default('*') }}"
+    minute: "{{ item.minute | default('0') }}"
+    job: rclone {{ item.command }} {{ item.source }} {{ item.dest }} {{ item.options | default('') }}; write-node-exporter-metric -c "Rclone job {{ item.id }}" -v $?
+    disabled: "{{ item.disabled | default(false) }}"
+    state: "{{ item.state | default('present') }}"
+  loop: "{{ rclone_sync }}"
+  when: item.command in ["copy", "copyto", "sync"]

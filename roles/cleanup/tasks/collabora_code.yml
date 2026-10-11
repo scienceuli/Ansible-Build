@@ -1,0 +1,5 @@
+---
+- name: Remove collabora_code container {{ collabora_code_hostname }}
+  community.docker.docker_container:
+    name: "{{ collabora_code_hostname }}"
+    state: absent

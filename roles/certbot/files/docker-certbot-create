@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+set -e
+
+script=$(basename "$0")
+version="1.0.1"
+
+help() {
+    echo
+    echo "$script"
+    echo
+    echo 'Description: Request Certbot certificate.'
+    echo "Syntax: $script [-c|-d|-e|help]"
+    echo "Example: $script -c odoo.example.com -d /usr/share/certbot01 -e sysadmin@example.com -s https://acme.zerossl.com/v2/DV90 -v"
+    echo 'options:'
+    echo '  -c    Certificate name.'
+    echo '  -d    Certbot data dir.'
+    echo '  -e    Mail address.'
+    echo '  -s    Alternate acme server.'
+    echo '  -t    Execute dry run.'
+    echo '  -v    Show more details.'
+    echo '  -w    Use webserver method (webroot) (instead of standalone).'
+    echo "  help  Show $script manual."
+    echo
+}
+
+if [[ "$1" == 'help' ]]; then
+    help
+    exit
+fi
+
+option=""
+server=""
+verbose=""
+webserver="False"
+
+while getopts ":c:d:e:s:twv" opt; do
+  case $opt in
+    c) certificate="$OPTARG"
+    ;;
+    d) certbot_data_dir="$OPTARG"
+    ;;
+    e) certbot_email="$OPTARG"
+    ;;
+    s) server="$OPTARG"
+    ;;
+    t) option='--dry-run'
+    ;;
+    w) webserver="True"
+    ;;
+    v) verbose='-v'
+    ;;
+    \?) echo "Invalid option -$OPTARG" >&2
+    help
+    exit 1;;
+  esac
+done
+
+[[ -z "$certificate" ]] && { echo 'Parameter -c|certificate is empty.' ; exit 1; }
+[[ -z "$certbot_data_dir" ]] && { echo 'Parameter -d|certbot data dir is empty.' ; exit 1; }
+
+echo "Request certificate $certificate ..."
+
+if [[ -n "$server" ]]; then
+  server_option="--server $server"
+else
+  server_option=""
+fi
+if [[ -n "$certbot_email" ]]; then
+  email_option="--email $certbot_email"
+else
+  email_option="--register-unsafely-without-email"
+fi
+
+if [[ "$webserver" == "True" ]]; then
+    echo "Using webserver method..."
+    challenge_options="--webroot --webroot-path=/var/www/certbot/"
+    docker_volumes="-v $certbot_data_dir/www/:/var/www/certbot/"
+    docker_ports=""
+else
+    echo "Using standalone server..."
+    challenge_options="--standalone"
+    docker_volumes=""
+    docker_ports="-p 80:80"
+fi
+
+echo "Issue certficiate with options: $email_option --non-interactive --agree-tos $challenge_options -d $certificate $server_option $option $verbose"
+
+docker run --rm --name "${certificate}-tmp" \
+$docker_ports \
+-v /var/log/letsencrypt/:/var/log/letsencrypt/ \
+-v $certbot_data_dir/:/etc/letsencrypt/ \
+$docker_volumes \
+certbot/certbot \
+certonly $email_option --non-interactive --agree-tos $challenge_options -d $certificate $server_option $option $verbose

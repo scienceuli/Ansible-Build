@@ -1,0 +1,25 @@
+---
+# First run on a freshly installed server, before your own user exists.
+# Connects as root (the hoster image puts your SSH key on root) and creates
+# the users/groups from group_vars/setup/iam.yml. After that, every other
+# playbook connects as ansible_user (scienceuli) with sudo.
+#
+#   uv run ansible-playbook -i inventories playbooks/bootstrap.yml -l backup
+#
+# Play vars beat the inventory's ansible_user/ansible_become.
+- name: Bootstrap fresh server (packages, users, sudo)
+  hosts: setup:!localhost
+  vars:
+    ansible_user: root
+    ansible_become: false
+  pre_tasks:
+    # iam puts users into the docker group, but Docker isn't installed yet.
+    # docker-ce's postinst reuses an existing docker group.
+    - name: Ensure docker group exists
+      ansible.builtin.group:
+        name: docker
+        system: true
+  roles:
+    # git, zsh (oh-my-zsh) and acl (become_user) are needed by iam
+    - role: packages
+    - role: iam

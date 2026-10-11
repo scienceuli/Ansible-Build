@@ -1,0 +1,8 @@
+ansible
+ansible-dev-tools
+docker
+jmespath
+dnspython
+passlib
+graphviz
+lxml

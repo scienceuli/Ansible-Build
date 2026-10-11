@@ -1,0 +1,5 @@
+---
+restic_server_description: Restic Server
+restic_server_requires_package: python3-passlib
+restic_server_user: restic
+restic_server_password: "{{ vault_restic_server_password }}"

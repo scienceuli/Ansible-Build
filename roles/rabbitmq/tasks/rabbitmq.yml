@@ -1,0 +1,25 @@
+---
+- name: Create {{ role_name }} volume
+  community.docker.docker_volume:
+    name: "{{ rabbitmq_volume_name }}"
+
+- name: Ensure {{ role_name }} data dir exists
+  ansible.builtin.file:
+    path: "{{ rabbitmq_data_dir }}"
+    state: directory
+
+- name: Start {{ role_name }} container {{ rabbitmq_hostname }}
+  community.docker.docker_container:
+    name: "{{ rabbitmq_hostname }}"
+    labels:
+      description: "{{ rabbitmq_description }}"
+    image: "{{ rabbitmq_image }}"
+    restart_policy: unless-stopped
+    env:
+      RABBITMQ_DEFAULT_USER: "{{ rabbitmq_user }}"
+      RABBITMQ_DEFAULT_PASS: "{{ rabbitmq_password }}"
+    volumes:
+      - "{{ rabbitmq_volume_name }}:/var/lib/rabbitmqql/data"
+    ports: "{{ rabbitmq_ports | default([]) }}"
+    networks:
+      - name: "{{ docker_network_name }}"

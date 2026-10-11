@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -e
+
+script=$(basename "$0")
+version="1.0.1"
+
+help() {
+  echo
+  echo "$script"
+  echo
+  echo 'Description: Patch Docker Postgres database.'
+  echo "Syntax: $script [-c|-d|-f|help]"
+  echo 'Example: $script -c postgres01 -d odoo -f /tmp/patches/v14.0.1.6.0.sql'
+  echo 'options:'
+  echo '  -d    Name of database.'
+  echo '  -f    Path to sql patch.'
+  echo '  -c    Docker container name. Defaults to '\''postgres'\''.'
+  echo "  help  Show $script manual."
+  echo
+}
+
+if [[ "$1" == 'help' ]]; then
+    help
+    exit
+fi
+
+container=postgres
+
+while getopts ':c: :d: :f:' opt; do
+  case $opt in
+    c) container="$OPTARG";;
+    d) database="$OPTARG";;
+    f) file="$OPTARG";;
+    \?) echo "Invalid option -$OPTARG" >&2
+    help
+    exit 1;;
+  esac
+done
+
+[[ -z "$database" ]] && { echo 'Parameter -d|database is empty.' ; exit 1; }
+[[ -z "$file" ]] && { echo 'Parameter -f|filename is empty.' ; exit 1; }
+
+postgres_user=$(docker exec $container /bin/bash -c "echo \$POSTGRES_USER")
+
+echo "Patch Postgres database $database using user $postgres_user with file $file ..."
+cat $file | docker exec -i $container psql -U $postgres_user -d $database

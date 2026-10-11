@@ -1,0 +1,25 @@
+---
+moodle_volume_name: "{{ moodle_hostname }}"
+odoo_data_dir: /usr/share/{{ odoo_hostname }}
+odoo_configmap:
+  - hostname: odoo01-prod
+odoo_volume_name: "{{ odoo_hostname }}"
+postgres_volume_name: "{{ postgres_hostname }}"
+nextcloud_volume_name: "{{ nextcloud_hostname }}"
+nginx_data_dir: "/usr/share/{{ nginx_hostname }}"
+metabase_configmap: [hostname: metabase01-prod]
+loki_data_dir: /usr/share/{{ loki_hostname }}
+node_exporter_data_dir: /usr/share/{{ node_exporter_hostname }}
+pgadmin_data_dir: /usr/share/{{ pgadmin_hostname }}
+promtail_data_dir: /usr/share/{{ promtail_hostname }}
+grafana_data_dir: /usr/share/{{ grafana_hostname }}
+grafana_volume_name: "{{ grafana_hostname }}"
+prometheus_volume_name: "{{ prometheus_hostname }}"
+prometheus_data_dir: /usr/share/{{ prometheus_hostname }}
+docker_compose_data_dir: /srv/compose/{{ docker_compose_project_name }}
+fail2ban_packages:
+  - name: fail2ban
+docker_build_dir: /srv/build
+cadvisor_nginx_data_dir: "{{ nginx_data_dir }}/proxies"
+n8n_volume_name: "{{ n8n_hostname }}"
+postgres_data_dir: /usr/share/{{ postgres_hostname }}

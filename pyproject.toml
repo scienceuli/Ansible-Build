@@ -6,4 +6,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "ansible>=11.9.0",
+    "dnspython>=2.9.0",
+    "jmespath>=1.1.0",
+    "passlib>=1.7.4",
 ]
+
+[tool.uv.workspace]
+members = ["tests"]

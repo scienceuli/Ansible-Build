@@ -1,0 +1,33 @@
+---
+- name: Create {{ role_name }} volume
+  community.docker.docker_volume:
+    name: "{{ mariadb_volume_name }}"
+
+- name: Start {{ role_name }} container {{ mariadb_hostname }}
+  community.docker.docker_container:
+    name: "{{ mariadb_hostname }}"
+    labels:
+      description: "{{ mariadb_description }}"
+    image: "{{ mariadb_image }}"
+    restart_policy: unless-stopped
+    command: "{{ mariadb_command }}"
+    env:
+      MARIADB_ROOT_PASSWORD: "{{ mariadb_root_password }}"
+      MARIADB_DATABASE: "{{ mariadb_database }}"
+      MARIADB_USER: "{{ mariadb_user }}"
+      MARIADB_PASSWORD: "{{ mariadb_password }}"
+    volumes:
+      - "{{ mariadb_volume_name }}:/var/lib/mysql"
+    networks:
+      - name: "{{ docker_network_name }}"
+  when: mariadb_volume_name is defined
+
+- name: Copy backup scripts
+  ansible.builtin.copy:
+    src: ../../mysql/files/{{ item }}
+    dest: /usr/local/bin/{{ item }}
+    mode: +x
+  loop:
+    - docker-mysql-backup
+    - docker-mysql-list
+    - docker-mysql-restore

@@ -1,0 +1,13 @@
+---
+# TODO: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html#installation
+
+- name: Start {{ role_name }} container
+  community.docker.docker_container:
+    name: "{{ ollama_hostname }}"
+    labels:
+      description: "{{ ollama_description }}"
+    image: "{{ ollama_image }}"
+    restart_policy: unless-stopped
+    ports: "{{ ollama_ports | default([]) }}"
+    networks:
+      - name: "{{ docker_network_name }}"

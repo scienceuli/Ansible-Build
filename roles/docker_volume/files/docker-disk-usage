@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -e
+
+script=$(basename "$0")
+version="1.0.1"
+
+help() {
+    echo
+    echo "$script"
+    echo
+    echo 'Description: List disk usage of Docker containers.'
+    echo "Syntax: $script [-c container_name|-a|-V|help]"
+    echo 'Example: $script -a'
+    echo 'Options:'
+    echo '  -c    List a specific container by ID or name.'
+    echo '  -a    List all containers.'
+    echo '  -V    Show version.'
+    echo '  help  Show this help.'
+    echo
+}
+
+[[ "$1" == 'help' ]] && { help; exit 0; }
+
+all='false'
+
+while getopts ':c:aV' opt; do
+    case $opt in
+        c) container="$OPTARG" ;;
+        a) all='true' ;;
+        V) echo "$script version $version"; exit 0 ;;
+        \?) echo "Invalid option: -$OPTARG" >&2; help; exit 1 ;;
+    esac
+done
+
+check-container-disk-usage() {
+  local container_id=$1
+  docker ps --size --format '{{.ID}} {{.Size}}' | grep "$container_id" | awk '{$1=""; print $0}' | sed 's/^ *//'
+}
+
+id_width=36
+name_width=36
+usage_width=20
+disk_column="| %-${id_width}s | %-${name_width}s | %-${usage_width}s |\n"
+
+printf "$disk_column" 'ID' 'Name' 'Disk Usage'
+echo "|$(printf '%*s' $((id_width + 2)) '' | tr ' ' '-')|$(printf '%*s' $((name_width + 2)) '' | tr ' ' '-')|$(printf '%*s' $((usage_width + 2)) '' | tr ' ' '-')|"
+
+if [[ "$all" == 'true' ]]; then
+    docker ps --format "{{.ID}} {{.Names}}" | while read -r container_id container_name; do
+        disk_usage=$(check-container-disk-usage "$container_id")
+        printf "$disk_column" "$container_id" "$container_name" "$disk_usage"
+    done
+elif [[ -n "$container" ]]; then
+    container_id=$(docker ps -q -f name="$container")
+    if [[ -z "$container_id" ]]; then
+        echo "Container '$container' not found."
+        exit 1
+    fi
+    disk_usage=$(check-container-disk-usage "$container_id")
+    printf "$disk_column" "$container_id" "$container" "$disk_usage"
+else
+    echo 'No options provided.'
+    help
+    exit 1
+fi

@@ -1,0 +1,76 @@
+---
+# Normally installed by the packages role (group_packages); hosts set up
+# before that role existed (e.g. dirac) don't have it.
+- name: Ensure restic is installed
+  ansible.builtin.package:
+    name: restic
+    state: present
+
+- name: Ensure {{ restic_group }} group exists
+  ansible.builtin.group:
+    name: "{{ restic_group }}"
+    state: present
+
+- name: Ensure {{ role_name }} backup dir exists
+  ansible.builtin.file:
+    path: "{{ restic_backup_dir }}"
+    state: directory
+    owner: "{{ restic_owner }}"
+    group: "{{ restic_group }}"
+    mode: "2750"
+    recurse: true
+
+- name: Set {{ role_name }} rest env
+  ansible.builtin.set_fact:
+    restic_password: "{{ restic_repo_password }}"
+    # Credentials go into the URL's userinfo, so special characters must be
+    # percent-encoded (urlencode leaves "/" alone).
+    restic_repository: rest:{{ restic_rest_scheme }}://{{ restic_rest_user | urlencode | replace('/', '%2F') }}:{{ restic_rest_password | urlencode | replace('/', '%2F') }}@{{ restic_repo }}
+  when: restic_repo_type == 'rest'
+
+- name: Set {{ role_name }} local env
+  ansible.builtin.set_fact:
+    restic_password: "{{ restic_repo_password }}"
+    restic_repository: "{{ restic_repo }}"
+  when: restic_repo_type == 'local'
+
+- name: Setup {{ role_name }} wrapper script for main repo
+  ansible.builtin.template:
+    dest: /usr/local/bin/restic-main
+    src: restic-main
+    owner: "{{ restic_owner }}"
+    group: "{{ restic_group }}"
+    mode: "0750"
+
+# restic-main and the backup helpers live in /usr/local/bin, which isn't in
+# cron's default PATH. Same entry as the cron role, so the two don't fight.
+- name: Add bin folder to cron PATH
+  ansible.builtin.cron:
+    name: PATH
+    env: true
+    job: "{{ package_path_var | default('/bin:/usr/bin:/usr/local/bin') }}"
+
+- name: Check if repo is initialized
+  ansible.builtin.command: restic snapshots
+  environment:
+    RESTIC_PASSWORD: "{{ restic_password }}"
+    RESTIC_REPOSITORY: "{{ restic_repository }}"
+  ignore_errors: true
+  changed_when: false
+  register: repo_initalized
+
+- name: Init restic repository
+  ansible.builtin.command: restic init
+  environment:
+    RESTIC_PASSWORD: "{{ restic_password }}"
+    RESTIC_REPOSITORY: "{{ restic_repository }}"
+  when: repo_initalized.failed
+
+- name: Register backup rotation job
+  ansible.builtin.cron:
+    name: Backup rotation job
+    hour: "23"
+    minute: "{{ 59 |random(seed=restic_repo) }}"
+    job: restic-main forget --keep-last {{ restic_backup_rotation.last }} --keep-daily {{ restic_backup_rotation.daily }} --keep-weekly {{
+      restic_backup_rotation.weekly }} --keep-monthly {{ restic_backup_rotation.monthly }} --prune; write-node-exporter-metric -c "Backup rotation job" -v $?
+    disabled: "{{ item.disabled | default(false) }}"

@@ -1,0 +1,7 @@
+---
+- name: Remove certbot container {{ certbot_hostname }}
+  community.docker.docker_container:
+    name: "{{ certbot_hostname }}"
+    state: absent
+
+# Do not remove certbot data dir

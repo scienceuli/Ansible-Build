@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -e
+
+script=$(basename "$0")
+version="1.0.1"
+
+help() {
+    echo
+    echo "$script"
+    echo
+    echo 'Description: Rename Postgres database in container.'
+    echo "Syntax: $script [-c|-s|-t|-r|-V|help]"
+    echo 'Example: $script -c odoo06 -s odoo -t odoo-int -r'
+    echo 'options:'
+    echo '  -c    Docker container. Defaults to '\''odoo'\''.'
+    echo '  -s    Source database name.'
+    echo '  -t    Target database name.'
+    echo '  -r    Replace existing database.'
+    echo "  -V    Show $script version."
+    echo "  help  Show $script manual."
+    echo
+}
+
+if [[ "$1" == 'help' ]]; then
+    help
+    exit
+fi
+
+replace='false'
+container=postgres
+
+while getopts ':c: :s: :t: :r :V' opt; do
+    case $opt in
+        c) container="$OPTARG";;
+        s) source_database="$OPTARG";;
+        t) target_database="$OPTARG";;
+        r) replace='true';;
+        V) echo "$script version $version"
+        exit 0
+        ;;
+        \?) echo "Invalid option -$OPTARG" >&2
+        help
+        exit;;
+    esac
+done
+
+[[ -z "$source_database" ]] && { echo 'Parameter -s|source is empty.' ; exit 1; }
+[[ -z "$target_database" ]] && { echo 'Parameter -t|target is empty.' ; exit 1; }
+[[ "$target_database" == "$source_database" ]] && { echo 'Parameter -s|source and -t|target cannot be the same' ; exit 1; }
+
+container_id=$(docker ps -f "name=${container}" -q | head -n1)
+[[ -z "$container_id" ]] && { echo "Container id for $container not found." ; exit 1; }
+
+if $replace; then
+    docker-postgres-drop -c "$container" -d "$target_database"
+fi
+
+echo "Kill database connections on $source_database."
+query="SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$source_database';"
+docker exec $container_id /bin/bash -c "psql postgres://\$POSTGRES_USER:\$POSTGRES_PASSWORD@\$HOSTNAME:5432/postgres -c \"$query\""
+
+echo "Rename database from $source_database to $target_database."
+docker exec $container_id /bin/bash -c "psql postgres://\$POSTGRES_USER:\$POSTGRES_PASSWORD@\$HOSTNAME:5432/postgres -c 'ALTER DATABASE \"$source_database\" RENAME TO \"$target_database\";'"

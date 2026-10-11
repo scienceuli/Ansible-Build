@@ -1,0 +1,7 @@
+---
+- name: Cleanup play
+  hosts: all
+  roles:
+    - role: cleanup
+      tags:
+        - always

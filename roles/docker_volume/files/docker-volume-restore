@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -e
+
+script=$(basename "$0")
+version="1.0.1"
+
+help() {
+    echo
+    echo "$script"
+    echo
+    echo 'Description: Restore docker volumes.'
+    echo "Syntax: $script [-v|-f|-V|help]"
+    echo 'Example: $script -v postgres_data01 -f /var/tmp/postgres_data01.tar'
+    echo 'options:'
+    echo '  -v    Volume name. Defaults to tar file name.'
+    echo '  -f    Path to tar file.'
+    echo "  -V    Show $script version."
+    echo "  help  Show $script manual."
+    echo
+}
+
+if [[ "$1" == 'help' ]]; then
+    help
+    exit
+fi
+
+while getopts 'v:f:V' opt; do
+    case $opt in
+        v) volume="$OPTARG";;
+        f) file="$OPTARG";;
+        V) echo "$script version $version"
+           exit 0
+        ;;
+        \?) echo "Invalid option -$OPTARG" >&2
+            help
+            exit 1
+        ;;
+    esac
+done
+
+[[ -z "$file" ]] && { echo 'Parameter -f|filename is empty.' ; exit 1; }
+
+filename=$(basename -- "$file")
+dir=$(dirname "$file")
+volume=${volume:="${filename%%.*}"}
+
+echo 'Make sure to stop the attached containers before running the restore.'
+
+echo "Run restore $dir/$filename to Docker volume $volume ..."
+docker run --rm -v "$volume:/_data" -v "$dir:/restore" ubuntu /bin/bash -c "
+    shopt -s dotglob && cd /_data && rm -rf -- * || true && tar xf /restore/$filename --strip 1"
+
+echo 'Docker volume restore has finished.'

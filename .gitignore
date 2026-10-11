@@ -31,3 +31,5 @@ venv*
 inventories
 inventory.yaml
 inventory.ini
+
+tests

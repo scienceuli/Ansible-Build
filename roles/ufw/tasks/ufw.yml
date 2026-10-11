@@ -1,0 +1,39 @@
+---
+- name: Gather package facts
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Combine default and host rule sets
+  ansible.builtin.set_fact:
+    ufw_rule_sets: "{{ ufw_rule_sets + host_ufw_rule_sets }}"
+  when: host_ufw_rule_sets is defined
+
+- name: Fail if package ufw is not installed
+  ansible.builtin.fail:
+    msg: Package ufw not installed
+  when: "'ufw' not in ansible_facts.packages"
+
+- name: Reset ufw
+  community.general.ufw:
+    state: reset
+
+- name: Configure ufw rules
+  community.general.ufw:
+    rule: "{{ item.rule }}"
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+  loop: "{{ ufw_active_rules | map('extract', ufw_rule_sets) | flatten }}"
+
+- name: Deny all other incoming traffic by default
+  community.general.ufw:
+    policy: deny
+    direction: incoming
+
+- name: Allow outgoing traffic by default
+  community.general.ufw:
+    policy: allow
+    direction: outgoing
+
+- name: Enable {{ role_name }} service
+  community.general.ufw:
+    state: enabled

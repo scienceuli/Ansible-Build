@@ -1,0 +1,24 @@
+---
+# apt_repository needs gpg; hosts that never ran the packages role lack it.
+- name: Ensure gnupg is installed
+  ansible.builtin.apt:
+    name: gnupg
+    state: present
+
+- name: Add {{ role_name }} gpg apt key
+  ansible.builtin.get_url:
+    url: "{{ docker_apt_url }}"
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+
+- name: Add {{ role_name }} repo
+  ansible.builtin.apt_repository:
+    repo: "{{ docker_apt_repo }}"
+    state: present
+
+- name: Install required {{ role_name }} packages
+  ansible.builtin.include_role:
+    name: packages
+  vars:
+    group_packages: "{{ docker_packages }}"
+  when: docker_packages is defined

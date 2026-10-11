@@ -1,0 +1,59 @@
+{{ ansible_managed | comment }}
+services:
+  db:
+    image: "{{ eventmanager_db_image }}"
+    container_name: "eventmanager-db"
+    restart: "{{ eventmanager_restart_policy }}"
+    environment:
+      POSTGRES_DB: "{{ eventmanager_db_name }}"
+      POSTGRES_USER: "{{ eventmanager_db_user }}"
+      POSTGRES_PASSWORD: {{ eventmanager_db_password | replace('$', '$$') | to_json }}
+    volumes:
+      - "{{ eventmanager_db_data_dir }}:/var/lib/postgresql/data"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{ eventmanager_db_user }} -d {{ eventmanager_db_name }}"]
+      interval: 5s
+      retries: 20
+
+  mjml:
+    image: "{{ eventmanager_mjml_image }}"
+    container_name: "eventmanager-mjml"
+    restart: "{{ eventmanager_restart_policy }}"
+
+  web:
+    build: ./src
+    image: "eventmanager:latest"
+    container_name: "eventmanager-web"
+    restart: "{{ eventmanager_restart_policy }}"
+    command: ["gunicorn", "eventmanager.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "{{ eventmanager_gunicorn_workers }}", "--timeout", "120", "--access-logfile", "-"]
+    env_file: .env
+    environment:
+      RUN_MIGRATIONS: "1"
+    # Reached by the nginx container as eventmanager-web:8000
+    networks:
+      - default
+      - proxy
+    volumes:
+      - "{{ eventmanager_data_dir }}:/data"
+    depends_on:
+      db:
+        condition: service_healthy
+      mjml:
+        condition: service_started
+
+  mailqueue:
+    image: "eventmanager:latest"
+    pull_policy: never    # built locally by the web service
+    container_name: "eventmanager-mailqueue"
+    restart: "{{ eventmanager_restart_policy }}"
+    command: ["/app/docker/mailqueue.sh"]
+    env_file: .env
+    volumes:
+      - "{{ eventmanager_data_dir }}:/data"
+    depends_on:
+      - web
+
+networks:
+  proxy:
+    name: "{{ eventmanager_network }}"
+    external: true

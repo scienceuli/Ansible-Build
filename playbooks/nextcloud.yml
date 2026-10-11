@@ -1,0 +1,20 @@
+---
+- name: Nextcloud play
+  hosts: nextcloud
+  roles:
+    - role: postgres
+      tags: nextcloud
+    - role: mariadb
+      tags: nextcloud
+    - role: redis
+      tags: redis
+    - role: nextcloud
+      tags: nextcloud
+    - role: nextcloud_apps
+      tags: nextcloud_apps
+    - role: onlyoffice_documentserver
+      tags: onlyoffice_documentserver
+    - role: collabora_code
+      tags: collabora_code
+    - role: clamav
+      tags: clamav
