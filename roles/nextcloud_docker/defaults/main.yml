@@ -1,0 +1,40 @@
+---
+# Nextcloud (official apache image) as a container on docker_network_name,
+# behind the nginx container. Built for taking over existing installations:
+# no NEXTCLOUD_ADMIN_*/database env (an existing config.php in the volume is
+# used as is), the image's entrypoint upgrades the code when the tag moves on.
+#
+# Required:
+#   nextcloud_docker_image     e.g. nextcloud:26-apache - one major at a time!
+
+nextcloud_docker_hostname: nextcloud01
+nextcloud_docker_description: Nextcloud
+nextcloud_docker_volume_name: "{{ nextcloud_docker_hostname }}" # /var/www/html (code, config, apps)
+nextcloud_docker_network: "{{ docker_network_name }}"
+
+# e.g. an external data directory: ["/data:/data"] (datadirectory in config.php)
+nextcloud_docker_extra_volumes: []
+# e.g. ["127.0.0.1:8090:80"] for tests without nginx
+nextcloud_docker_ports: []
+
+nextcloud_docker_timezone: Europe/Berlin
+nextcloud_docker_php_memory_limit: 1G
+nextcloud_docker_php_upload_limit: 10G
+# Apache LimitRequestBody in the image (default 1 GiB); 0 = unlimited, nginx limits uploads
+nextcloud_docker_apache_body_limit: "0"
+nextcloud_docker_env: {}
+
+# Background jobs via host cron (docker exec cron.php every 5 min)
+nextcloud_docker_cron: true
+
+# How long to wait for the entrypoint (copies code, runs occ upgrade)
+nextcloud_docker_wait_retries: 90
+nextcloud_docker_wait_delay: 10
+
+# occ config:system:set, only applied when the current value differs:
+#   - key: [trusted_proxies, 0]
+#     value: 172.18.0.0/16
+#   - key: [redis, port]
+#     value: "6379"
+#     type: integer
+nextcloud_docker_system_config: []

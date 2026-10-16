@@ -1,0 +1,317 @@
+---
+# VFLL Nextcloud on hertz: native install → container stack (see MIGRATION_PLAN.md).
+# Idempotent - every step that copies or imports data runs only once per stack
+# (marker files in vn_work_dir). Upgrades: re-run with the next major image:
+#
+#   uv run ansible-playbook -i inventories playbooks/vfll_nextcloud/migrate.yml -e @playbooks/vfll_nextcloud/vars/test.yml
+#   uv run ansible-playbook -i inventories playbooks/vfll_nextcloud/migrate.yml -e @playbooks/vfll_nextcloud/vars/test.yml -e vn_nextcloud_image=nextcloud:27-apache
+- name: Migrate VFLL Nextcloud to containers ({{ vn_stack }})
+  hosts: hertz
+  become: true
+  vars:
+    vn_source_dir: /var/www/nextcloud
+    vn_nextcloud_image: nextcloud:26-apache   # one major at a time!
+    vn_mariadb_image: mariadb:10.11
+    vn_redis_image: redis:7-alpine
+    vn_onlyoffice_image: onlyoffice/documentserver:9.4.0
+    vn_old_onlyoffice_container: ONLYOFFICEDOCKER
+    vn_dump: "{{ vn_work_dir }}/nextcloud.sql"
+  pre_tasks:
+    - name: Require a stack definition (-e @playbooks/vfll_nextcloud/vars/<stack>.yml)
+      ansible.builtin.assert:
+        that: vn_stack is defined and vn_work_dir is defined
+
+    - name: Ensure work dir exists
+      ansible.builtin.file:
+        path: "{{ vn_work_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Ensure docker network {{ vn_network }} exists
+      community.docker.docker_network:
+        name: "{{ vn_network }}"
+      register: vn_network_info
+
+    # --- secrets -----------------------------------------------------------
+    - name: Generate stack secrets (test stacks only)
+      ansible.builtin.shell: |
+        set -e
+        f="{{ vn_work_dir }}/secrets.json"
+        [ -f "$f" ] && exit 0
+        umask 077
+        printf '{"mariadb_root":"%s","mariadb":"%s","redis":"%s"}\n' \
+          "$(openssl rand -hex 24)" "$(openssl rand -hex 24)" "$(openssl rand -hex 24)" > "$f"
+        echo created
+      register: vn_secrets_gen
+      changed_when: "'created' in vn_secrets_gen.stdout"
+      when: vn_generate_secrets | default(false)
+
+    - name: Read stack secrets
+      ansible.builtin.slurp:
+        src: "{{ vn_work_dir }}/secrets.json"
+      register: vn_secrets_file
+      when: vn_generate_secrets | default(false)
+
+    - name: Set secrets
+      ansible.builtin.set_fact:
+        vn_mariadb_root_password: "{{ (vn_secrets_file.content | b64decode | from_json).mariadb_root if vn_generate_secrets | default(false) else vault_vfll_mariadb_root_password }}"
+        vn_mariadb_password: "{{ (vn_secrets_file.content | b64decode | from_json).mariadb if vn_generate_secrets | default(false) else vault_vfll_mariadb_password }}"
+        vn_redis_password: "{{ (vn_secrets_file.content | b64decode | from_json).redis if vn_generate_secrets | default(false) else vault_vfll_redis_password }}"
+      no_log: true
+
+    # The JWT secret must stay the same - the Nextcloud onlyoffice app has it too.
+    # From the old container while it runs, afterwards from the new one
+    # (the old one is stopped when nginx takes over).
+    - name: Read OnlyOffice JWT secret
+      ansible.builtin.shell: >-
+        docker exec {{ vn_old_onlyoffice_container }} printenv JWT_SECRET 2>/dev/null
+        || docker exec {{ vn_onlyoffice_hostname }} printenv JWT_SECRET
+      register: vn_jwt
+      changed_when: false
+      no_log: true
+
+    # --- source --------------------------------------------------------------
+    - name: Check whether the database was already imported
+      ansible.builtin.stat:
+        path: "{{ vn_work_dir }}/.db-imported"
+      register: vn_db_imported
+
+    - name: Maintenance mode on (native instance)
+      ansible.builtin.command: sudo -u www-data php {{ vn_source_dir }}/occ maintenance:mode --on
+      when: vn_maintenance_source and not vn_db_imported.stat.exists
+
+    # Reference for after the switch: upgrades disable apps they consider
+    # incompatible or missing - everything enabled here gets re-enabled.
+    - name: Record apps enabled on the native instance
+      ansible.builtin.shell: >-
+        sudo -u www-data php {{ vn_source_dir }}/occ app:list --output=json > {{ vn_work_dir }}/apps-native.json
+      when: not vn_db_imported.stat.exists
+
+    - name: Dump native database
+      ansible.builtin.shell: >-
+        mysqldump --single-transaction --default-character-set=utf8mb4 nextcloud > {{ vn_dump }}.tmp
+        && mv {{ vn_dump }}.tmp {{ vn_dump }}
+      when: not vn_db_imported.stat.exists
+
+    - name: Copy data directory (test stacks)
+      ansible.builtin.command: rsync -a --delete /data/ {{ vn_data_dir }}/
+      when: vn_copy_data and not vn_db_imported.stat.exists
+
+  roles:
+    - role: mariadb
+      vars:
+        docker_network_name: "{{ vn_network }}"
+        mariadb_image: "{{ vn_mariadb_image }}"
+        mariadb_hostname: "{{ vn_mariadb_hostname }}"
+        mariadb_root_password: "{{ vn_mariadb_root_password }}"
+        mariadb_database: nextcloud
+        mariadb_user: nextcloud
+        mariadb_password: "{{ vn_mariadb_password }}"
+        # Nextcloud's recommended server settings
+        mariadb_command: >-
+          --transaction-isolation=READ-COMMITTED --binlog-format=ROW
+          --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci
+    - role: redis
+      vars:
+        docker_network_name: "{{ vn_network }}"
+        redis_image: "{{ vn_redis_image }}"
+        redis_hostname: "{{ vn_redis_hostname }}"
+        redis_password: "{{ vn_redis_password }}"
+
+  tasks:
+    - name: Wait for MariaDB
+      ansible.builtin.command: docker exec {{ vn_mariadb_hostname }} mariadb -uroot -p{{ vn_mariadb_root_password }} -e "select 1"
+      register: vn_mariadb_ready
+      until: vn_mariadb_ready.rc == 0
+      retries: 30
+      delay: 2
+      changed_when: false
+      no_log: true
+
+    - name: Import database
+      ansible.builtin.shell: >-
+        docker exec -i {{ vn_mariadb_hostname }} mariadb -uroot -p{{ vn_mariadb_root_password }} nextcloud < {{ vn_dump }}
+        && touch {{ vn_work_dir }}/.db-imported
+      when: not vn_db_imported.stat.exists
+      no_log: true
+
+    # --- code + config.php into the volume -----------------------------------
+    - name: Create Nextcloud volume
+      community.docker.docker_volume:
+        name: "{{ vn_nextcloud_hostname }}"
+      register: vn_volume
+
+    - name: Check whether the code was already copied
+      ansible.builtin.stat:
+        path: "{{ vn_work_dir }}/.code-copied"
+      register: vn_code_copied
+
+    # With the old version.php in the volume, the image's entrypoint upgrades
+    # the existing install instead of installing a fresh one.
+    - name: Copy native code, apps and config into the volume
+      ansible.builtin.shell: >-
+        rsync -a --delete {{ vn_source_dir }}/ {{ vn_volume.volume.Mountpoint }}/
+        && touch {{ vn_work_dir }}/.code-copied
+      when: not vn_code_copied.stat.exists
+
+    # The image's entrypoint replaces apps/ with its own (rsync --delete) and
+    # only keeps custom_apps/ - app-store apps from the native install
+    # (calendar, contacts, groupfolders, ...) must live there. apps_paths for
+    # custom_apps is set in config.php below: the image's apps.config.php is
+    # only added on a fresh install, not when taking over an existing one -
+    # without it the upgrade disables these apps as missing.
+    - name: Move apps the image doesn't ship into custom_apps
+      ansible.builtin.shell: |
+        set -e
+        vol="{{ vn_volume.volume.Mountpoint }}"
+        shipped=$(docker run --rm --entrypoint ls {{ vn_nextcloud_image }} /usr/src/nextcloud/apps)
+        mkdir -p "$vol/custom_apps"
+        chown 33:33 "$vol/custom_apps"
+        for app in $(ls "$vol/apps"); do
+          if ! echo "$shipped" | grep -qx "$app"; then
+            mv "$vol/apps/$app" "$vol/custom_apps/$app"
+            echo "moved $app"
+          fi
+        done
+      register: vn_moved_apps
+      when: not vn_code_copied.stat.exists
+
+    - name: Show moved apps
+      ansible.builtin.debug:
+        var: vn_moved_apps.stdout_lines
+      when: vn_moved_apps.stdout_lines is defined
+
+    - name: Copy config rewrite helper
+      ansible.builtin.copy:
+        src: rewrite-config.php
+        dest: "{{ vn_work_dir }}/rewrite-config.php"
+        mode: "0600"
+
+    - name: Write config changes
+      ansible.builtin.copy:
+        dest: "{{ vn_work_dir }}/config-changes.json"
+        mode: "0600"
+        content: "{{ vn_config_changes | to_nice_json }}"
+      vars:
+        vn_config_changes:
+          set: "{{ {
+            'dbhost': vn_mariadb_hostname,
+            'dbuser': 'nextcloud',
+            'dbpassword': vn_mariadb_password,
+            'redis': {'host': vn_redis_hostname, 'port': 6379, 'password': vn_redis_password, 'dbindex': 1, 'timeout': 1.5},
+            'memcache.locking': '\\OC\\Memcache\\Redis',
+            'memcache.local': '\\OC\\Memcache\\APCu',
+            'trusted_proxies': [vn_network_info.network.IPAM.Config[0].Subnet],
+            'trusted_domains': vn_trusted_domains,
+            'overwrite.cli.url': vn_public_url,
+            'datadirectory': '/data',
+            'maintenance': false,
+            'apps_paths': [
+              {'path': '/var/www/html/apps', 'url': '/apps', 'writable': false},
+              {'path': '/var/www/html/custom_apps', 'url': '/custom_apps', 'writable': true},
+            ],
+            } | combine({'overwriteprotocol': vn_overwriteprotocol} if vn_overwriteprotocol else {})
+              | combine({'mail_smtpmode': 'null'} if vn_disable_mail else {}) }}"
+          # logfile: native /var/log/nextcloud doesn't exist in the container,
+          # without it Nextcloud logs to <datadirectory>/nextcloud.log
+          unset: "{{ ['logfile'] + ([] if vn_overwriteprotocol else ['overwriteprotocol']) }}"
+      no_log: true
+
+    - name: Rewrite config.php for the container stack
+      ansible.builtin.command: >-
+        docker run --rm --entrypoint sh -v {{ vn_volume.volume.Mountpoint }}/config:/config -v {{ vn_work_dir }}:/work:ro
+        {{ vn_nextcloud_image }} -c "php /work/rewrite-config.php /config /work/config-changes.json && chown 33:33 /config/*.php"
+      register: vn_rewrite
+      # Only right after copying - later runs (upgrades) must not touch config.php
+      # (it would e.g. reset maintenance to false)
+      when: not vn_code_copied.stat.exists
+
+    - name: Show config rewrite
+      ansible.builtin.debug:
+        var: vn_rewrite.stdout_lines
+      when: vn_rewrite.stdout_lines is defined
+
+    # --- Nextcloud + OnlyOffice ---------------------------------------------
+    - name: Nextcloud container
+      ansible.builtin.include_role:
+        name: nextcloud_docker
+      vars:
+        docker_network_name: "{{ vn_network }}"
+        nextcloud_docker_image: "{{ vn_nextcloud_image }}"
+        nextcloud_docker_hostname: "{{ vn_nextcloud_hostname }}"
+        nextcloud_docker_extra_volumes: ["{{ vn_data_dir }}:/data"]
+        nextcloud_docker_ports: "{{ vn_nextcloud_ports }}"
+        nextcloud_docker_cron: "{{ vn_nextcloud_cron }}"
+        nextcloud_docker_system_config:
+          # heavy daily background jobs from 01:00 UTC (4 h window)
+          - key: [maintenance_window_start]
+            value: 1
+            type: integer
+
+    - name: Database housekeeping after (re)start
+      ansible.builtin.command: docker exec -u www-data {{ vn_nextcloud_hostname }} php occ {{ item }}
+      loop:
+        - db:add-missing-indices
+        - db:add-missing-columns
+        - db:add-missing-primary-keys
+      changed_when: false
+
+    - name: Update apps
+      ansible.builtin.command: docker exec -u www-data {{ vn_nextcloud_hostname }} php occ app:update --all
+      register: vn_app_update
+      changed_when: vn_app_update.stdout | length > 0
+
+    # Not done by upgrades (can take long on big instances) - run once after
+    # the last major step: -e vn_repair_expensive=true
+    - name: Expensive repairs (mimetype migrations)
+      ansible.builtin.command: docker exec -u www-data {{ vn_nextcloud_hostname }} php occ maintenance:repair --include-expensive
+      when: vn_repair_expensive | default(false)
+
+    - name: Read apps enabled on the native instance
+      ansible.builtin.slurp:
+        src: "{{ vn_work_dir }}/apps-native.json"
+      register: vn_apps_native
+
+    - name: Read apps enabled now
+      ansible.builtin.command: docker exec -u www-data {{ vn_nextcloud_hostname }} php occ app:list --output=json
+      register: vn_apps_now
+      changed_when: false
+
+    - name: Re-enable apps that were enabled on the native instance
+      ansible.builtin.command: docker exec -u www-data {{ vn_nextcloud_hostname }} php occ app:enable {{ item }}
+      loop: "{{ (vn_apps_native.content | b64decode | from_json).enabled.keys() | difference((vn_apps_now.stdout | from_json).enabled.keys()) }}"
+      register: vn_app_enable
+      failed_when: false
+
+    - name: Show apps that could not be re-enabled
+      ansible.builtin.debug:
+        msg: "{{ vn_app_enable.results | selectattr('rc', 'defined') | selectattr('rc', 'ne', 0) | map(attribute='item') | list }}"
+      when: vn_app_enable.results | default([]) | selectattr('rc', 'defined') | selectattr('rc', 'ne', 0) | list | length > 0
+
+    - name: OnlyOffice container
+      ansible.builtin.include_role:
+        name: onlyoffice_documentserver
+      vars:
+        docker_network_name: "{{ vn_network }}"
+        onlyoffice_documentserver_image: "{{ vn_onlyoffice_image }}"
+        onlyoffice_documentserver_hostname: "{{ vn_onlyoffice_hostname }}"
+        onlyoffice_documentserver_jwt_secret: "{{ vn_jwt.stdout }}"
+        onlyoffice_documentserver_ports: "{{ vn_onlyoffice_ports }}"
+
+    # Browser → public URL; Nextcloud ↔ OnlyOffice → inside the docker network
+    - name: Point the onlyoffice app to the new document server
+      ansible.builtin.command: docker exec -u www-data {{ vn_nextcloud_hostname }} php occ config:app:set onlyoffice {{ item.key }} --value={{ item.value }}
+      loop:
+        - { key: DocumentServerUrl, value: "{{ vn_office_public_url }}" }
+        - { key: DocumentServerInternalUrl, value: "http://{{ vn_onlyoffice_hostname }}/" }
+        - { key: StorageUrl, value: "http://{{ vn_nextcloud_hostname }}/" }
+      changed_when: false
+
+    - name: Final status
+      ansible.builtin.command: docker exec -u www-data {{ vn_nextcloud_hostname }} php occ status
+      register: vn_final_status
+      changed_when: false
+
+    - name: Show status
+      ansible.builtin.debug:
+        var: vn_final_status.stdout_lines

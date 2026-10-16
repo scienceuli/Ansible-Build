@@ -1,0 +1,48 @@
+---
+# Remove the test stack completely (containers, volumes, network, copied data,
+# cron job). Never touches the live instance or a prod stack.
+#   uv run ansible-playbook -i inventories playbooks/vfll_nextcloud/teardown_test.yml -e @playbooks/vfll_nextcloud/vars/test.yml
+- name: Remove VFLL Nextcloud test stack
+  hosts: hertz
+  become: true
+  tasks:
+    - name: Refuse anything but the test stack
+      ansible.builtin.assert:
+        that:
+          - vn_stack == "test"
+          - vn_work_dir == "/srv/nc-test"
+          - vn_nextcloud_hostname is search('-test$')
+
+    - name: Remove containers
+      community.docker.docker_container:
+        name: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ vn_nextcloud_hostname }}"
+        - "{{ vn_onlyoffice_hostname }}"
+        - "{{ vn_mariadb_hostname }}"
+        - "{{ vn_redis_hostname }}"
+
+    - name: Remove volumes
+      community.docker.docker_volume:
+        name: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ vn_nextcloud_hostname }}"
+        - "{{ vn_mariadb_hostname }}"
+        - "{{ vn_redis_hostname }}"
+
+    - name: Remove network
+      community.docker.docker_network:
+        name: "{{ vn_network }}"
+        state: absent
+
+    - name: Remove cron job
+      ansible.builtin.cron:
+        name: Run nextcloud background jobs {{ vn_nextcloud_hostname }}
+        state: absent
+
+    - name: Remove work dir incl. data copy
+      ansible.builtin.file:
+        path: "{{ vn_work_dir }}"
+        state: absent

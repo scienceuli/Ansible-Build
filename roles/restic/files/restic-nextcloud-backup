@@ -1,0 +1,60 @@
+#!/bin/sh
+# Consistent restic backup of Nextcloud with MySQL/MariaDB: maintenance mode on
+# -> DB dump -> restic backup of dump, Nextcloud dir and data dir ->
+# maintenance mode off (also on failure).
+#
+# Native install:
+#   restic-nextcloud-backup -n <nextcloud dir> -o <dump dir> [-t tag]...
+# Containers (nextcloud image + mariadb image, data dir bind-mounted):
+#   restic-nextcloud-backup -c <nextcloud container> -m <mariadb container> -D <host data dir> -o <dump dir> [-t tag]...
+set -eu
+# cron's PATH lacks the sbin dirs (runuser lives in /usr/sbin)
+PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+NC="" CONTAINER="" DBCONTAINER="" HOSTDATA="" TAGS=""
+while getopts "n:c:m:D:o:t:" opt; do
+    case "$opt" in
+        n) NC="$OPTARG" ;;
+        c) CONTAINER="$OPTARG" ;;
+        m) DBCONTAINER="$OPTARG" ;;
+        D) HOSTDATA="$OPTARG" ;;
+        o) OUT="$OPTARG" ;;
+        t) TAGS="$TAGS --tag $OPTARG" ;;
+        *) echo "Usage: see header of $0" >&2; exit 1 ;;
+    esac
+done
+: "${OUT:?-o missing}"
+
+if [ -n "$CONTAINER" ]; then
+    : "${DBCONTAINER:?-m missing}" "${HOSTDATA:?-D missing}"
+    occ() { docker exec -u www-data "$CONTAINER" php occ "$@"; }
+    # /var/www/html of the container: code, config.php, custom_apps
+    NCDIR=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/var/www/html"}}{{.Source}}{{end}}{{end}}' "$CONTAINER")
+    DATA="$HOSTDATA"
+else
+    : "${NC:?-n or -c missing}"
+    occ() { runuser -u "$(stat -c %U "$NC/occ")" -- php "$NC/occ" "$@"; }
+    NCDIR="$NC"
+    DATA=$(occ config:system:get datadirectory)
+fi
+
+DBTYPE=$(occ config:system:get dbtype)
+DBNAME=$(occ config:system:get dbname)
+[ "$DBTYPE" = "mysql" ] || { echo "Only mysql/mariadb supported, got $DBTYPE" >&2; exit 1; }
+[ -d "$NCDIR" ] && [ -d "$DATA" ] || { echo "Nextcloud dir ($NCDIR) or data dir ($DATA) missing" >&2; exit 1; }
+
+occ maintenance:mode --on
+trap 'occ maintenance:mode --off' EXIT
+
+mkdir -p "$OUT"
+if [ -n "$CONTAINER" ]; then
+    # shellcheck disable=SC2016
+    docker exec "$DBCONTAINER" sh -c 'mariadb-dump -uroot -p"$MARIADB_ROOT_PASSWORD" --single-transaction --default-character-set=utf8mb4 "$0"' "$DBNAME" > "$OUT/$DBNAME.sql.tmp"
+else
+    # Runs as root: MariaDB on Debian/Ubuntu authenticates root via unix socket.
+    mysqldump --single-transaction --default-character-set=utf8mb4 "$DBNAME" > "$OUT/$DBNAME.sql.tmp"
+fi
+mv "$OUT/$DBNAME.sql.tmp" "$OUT/$DBNAME.sql"
+
+# shellcheck disable=SC2086
+restic-main backup "$OUT" "$NCDIR" "$DATA" $TAGS

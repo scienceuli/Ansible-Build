@@ -1,0 +1,120 @@
+---
+- name: Create {{ role_name }} volume
+  community.docker.docker_volume:
+    name: "{{ nextcloud_docker_volume_name }}"
+
+- name: Start {{ role_name }} container {{ nextcloud_docker_hostname }}
+  community.docker.docker_container:
+    name: "{{ nextcloud_docker_hostname }}"
+    labels:
+      description: "{{ nextcloud_docker_description }}"
+    image: "{{ nextcloud_docker_image }}"
+    restart_policy: unless-stopped
+    env: "{{ {
+      'TZ': nextcloud_docker_timezone,
+      'PHP_MEMORY_LIMIT': nextcloud_docker_php_memory_limit,
+      'PHP_UPLOAD_LIMIT': nextcloud_docker_php_upload_limit,
+      'APACHE_BODY_LIMIT': nextcloud_docker_apache_body_limit,
+      } | combine(nextcloud_docker_env) }}"
+    volumes: "{{ [nextcloud_docker_volume_name + ':/var/www/html'] + nextcloud_docker_extra_volumes }}"
+    ports: "{{ nextcloud_docker_ports }}"
+    networks:
+      - name: "{{ nextcloud_docker_network }}"
+    # Without this an empty port list means "keep whatever is published"
+    comparisons:
+      published_ports: strict
+
+# The entrypoint copies the code and runs `occ upgrade`, then execs apache:
+# until PID 1 is apache2 it's still working. Checking occ status alone races
+# with it (new version.php, no maintenance yet) - a parallel `occ upgrade`
+# then fails with duplicate index errors.
+- name: Wait until the entrypoint of {{ nextcloud_docker_hostname }} has finished
+  ansible.builtin.command: docker exec {{ nextcloud_docker_hostname }} cat /proc/1/comm
+  register: nextcloud_docker_pid1
+  changed_when: false
+  failed_when: false
+  retries: "{{ nextcloud_docker_wait_retries }}"
+  delay: "{{ nextcloud_docker_wait_delay }}"
+  until: nextcloud_docker_pid1.stdout == "apache2"
+
+- name: Get version of the image
+  ansible.builtin.command: >-
+    docker exec {{ nextcloud_docker_hostname }}
+    php -r 'require "/usr/src/nextcloud/version.php"; echo $OC_VersionString;'
+  register: nextcloud_docker_image_version
+  changed_when: false
+  retries: 10
+  delay: 3
+  until: nextcloud_docker_image_version.rc == 0
+
+# The entrypoint copies the image's code into the volume and runs
+# `occ upgrade` when the image is newer - that can take minutes. Right after
+# a start occ still reports the old version, so wait for the image's.
+- name: Wait until {{ nextcloud_docker_hostname }} runs {{ nextcloud_docker_image_version.stdout }}
+  ansible.builtin.command: docker exec -u www-data {{ nextcloud_docker_hostname }} php occ status --output=json
+  register: nextcloud_docker_status
+  changed_when: false
+  failed_when: false
+  retries: "{{ nextcloud_docker_wait_retries }}"
+  delay: "{{ nextcloud_docker_wait_delay }}"
+  until: >-
+    nextcloud_docker_status.rc == 0
+    and (nextcloud_docker_status.stdout | from_json).installed
+    and (nextcloud_docker_status.stdout | from_json).versionstring == nextcloud_docker_image_version.stdout
+    and not (nextcloud_docker_status.stdout | from_json).maintenance
+
+# During its upgrade, Nextcloud also updates app-store apps to versions for the
+# new release; those need a further `occ upgrade`, which the entrypoint doesn't
+# run (needsDbUpgrade stays true). Repeat until nothing is pending.
+- name: Run pending occ upgrades
+  ansible.builtin.shell: |
+    for i in 1 2 3; do
+      docker exec -u www-data {{ nextcloud_docker_hostname }} php occ status --output=json | grep -q '"needsDbUpgrade":true' || exit 0
+      echo "pass $i"
+      docker exec -u www-data {{ nextcloud_docker_hostname }} php occ upgrade || exit 1
+    done
+  register: nextcloud_docker_upgrade
+  changed_when: "'pass' in nextcloud_docker_upgrade.stdout"
+
+- name: Get status after upgrades
+  ansible.builtin.command: docker exec -u www-data {{ nextcloud_docker_hostname }} php occ status --output=json
+  register: nextcloud_docker_status
+  changed_when: false
+
+- name: Fail if {{ nextcloud_docker_hostname }} didn't come up
+  ansible.builtin.fail:
+    msg: "Not ready after waiting: {{ nextcloud_docker_status.stdout | default(nextcloud_docker_status.stderr) }} - see docker logs {{ nextcloud_docker_hostname }}"
+  when: >-
+    nextcloud_docker_status.rc != 0
+    or (nextcloud_docker_status.stdout | from_json).versionstring != nextcloud_docker_image_version.stdout
+    or (nextcloud_docker_status.stdout | from_json).needsDbUpgrade
+
+- name: Show {{ nextcloud_docker_hostname }} version
+  ansible.builtin.debug:
+    msg: "{{ (nextcloud_docker_status.stdout | from_json).versionstring }}, maintenance: {{ (nextcloud_docker_status.stdout | from_json).maintenance }}"
+
+- name: Get system config
+  ansible.builtin.command: docker exec -u www-data {{ nextcloud_docker_hostname }} php occ config:system:get {{ item.key | map('quote') | join(' ') }}
+  register: nextcloud_docker_config_current
+  changed_when: false
+  failed_when: false
+  loop: "{{ nextcloud_docker_system_config }}"
+  loop_control:
+    label: "{{ item.key | join('.') }}"
+
+- name: Set system config
+  ansible.builtin.command: >-
+    docker exec -u www-data {{ nextcloud_docker_hostname }} php occ config:system:set
+    {{ item.item.key | map('quote') | join(' ') }} --value={{ item.item.value | string | quote }}
+    {{ '--type=' + item.item.type if item.item.type is defined else '' }}
+  loop: "{{ nextcloud_docker_config_current.results }}"
+  loop_control:
+    label: "{{ item.item.key | join('.') }}"
+  when: item.rc != 0 or item.stdout != (item.item.value | string)
+
+- name: Cron job to run {{ role_name }} background jobs
+  ansible.builtin.cron:
+    name: Run nextcloud background jobs {{ nextcloud_docker_hostname }}
+    minute: "*/5"
+    job: docker exec -u www-data {{ nextcloud_docker_hostname }} php -f /var/www/html/cron.php; write-node-exporter-metric -c "Run nextcloud background jobs {{ nextcloud_docker_hostname }}" -v $?
+    state: "{{ 'present' if nextcloud_docker_cron else 'absent' }}"

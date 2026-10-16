@@ -1,0 +1,31 @@
+---
+- name: Copy nextcloud backup script
+  ansible.builtin.copy:
+    src: restic-nextcloud-backup
+    dest: /usr/local/bin/restic-nextcloud-backup
+    mode: "0755"
+  when: restic_backup_set | selectattr('type', 'equalto', 'nextcloud') | list | length > 0
+
+- name: Verify nextcloud occ exists (native)
+  ansible.builtin.stat:
+    path: "{{ item.path }}/occ"
+  register: restic_nextcloud_occ
+  failed_when: not restic_nextcloud_occ.stat.exists
+  loop: "{{ restic_backup_set }}"
+  when: item.type == "nextcloud" and item.container is not defined
+
+# Nextcloud is in maintenance mode while the job runs - schedule it at night.
+# Native: path; containers: container, db_container, data_dir (host path).
+- name: Register nextcloud backup jobs
+  ansible.builtin.cron:
+    name: "{{ item.id }}"
+    hour: "{{ item.hour }}"
+    minute: "{{ 59 | random(seed=item.id) }}"
+    job: >-
+      restic-nextcloud-backup
+      {{ ('-c ' + item.container + ' -m ' + item.db_container + ' -D ' + item.data_dir) if item.container is defined else ('-n ' + item.path) }}
+      -o {{ restic_backup_dir }}/{{ item.name }} -t {{ item.tags | join(' -t ') }}; write-node-exporter-metric -c '{{ item.id }}' -v $?
+    disabled: "{{ item.disabled | default(false) }}"
+    state: "{{ item.state | default('present') }}"
+  loop: "{{ restic_backup_set }}"
+  when: item.type == "nextcloud"
