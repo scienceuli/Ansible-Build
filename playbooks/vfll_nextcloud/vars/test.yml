@@ -1,0 +1,27 @@
+---
+# Test stack on hertz, isolated from the live instance: own names, network,
+# volumes and a copy of /data. Reachable only via SSH tunnel:
+#   ssh -L 8090:127.0.0.1:8090 -L 8091:127.0.0.1:8091 scienceuli@hertz.science-and-more.com
+#   → http://localhost:8090 (Nextcloud), OnlyOffice at http://localhost:8091
+vn_stack: test
+vn_network: nc-test
+vn_work_dir: /srv/nc-test
+vn_maintenance_source: false # live instance keeps running
+vn_copy_data: true           # rsync /data → vn_data_dir
+vn_data_dir: /srv/nc-test/data
+vn_generate_secrets: true    # random, kept in vn_work_dir/secrets.json (root only)
+
+vn_mariadb_hostname: mariadb-test
+vn_redis_hostname: redis-test
+vn_nextcloud_hostname: nextcloud-test
+vn_onlyoffice_hostname: doc-test
+
+vn_nextcloud_ports: ["127.0.0.1:8090:80"]
+vn_onlyoffice_ports: ["127.0.0.1:8091:80"]
+vn_nextcloud_cron: true
+
+vn_public_url: http://localhost:8090
+vn_office_public_url: http://localhost:8091/
+vn_trusted_domains: [localhost, "localhost:8090", nextcloud-test]
+vn_overwriteprotocol: ""     # plain http through the tunnel
+vn_disable_mail: true        # never mail real users from the test copy

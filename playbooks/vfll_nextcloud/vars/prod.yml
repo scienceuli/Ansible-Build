@@ -1,0 +1,30 @@
+---
+# Production stack on hertz (switch 2026-10-16). Same network as nginx/certbot
+# (docker_network_name), /data mounted directly - no copy.
+vn_stack: prod
+vn_network: science-and-more.com
+vn_work_dir: /srv/nc-prod
+vn_maintenance_source: true  # native instance stays in maintenance for good
+vn_copy_data: false
+vn_data_dir: /data
+# vault_vfll_* in host_vars/hertz/vault.yml (generated on hertz at the switch,
+# moved there 2026-10-16)
+vn_generate_secrets: false
+
+vn_mariadb_hostname: mariadb01
+vn_redis_hostname: redis01
+vn_nextcloud_hostname: nextcloud01
+vn_onlyoffice_hostname: doc01
+
+# Only nginx01 talks to nextcloud01 (docker network)
+vn_nextcloud_ports: []
+vn_onlyoffice_ports: []
+vn_nextcloud_cron: true
+
+vn_public_url: https://oonc.vfll.de
+# TODO: move OnlyOffice to https://oonc.vfll.de/onlyoffice/ and drop office.vfll.de
+vn_office_public_url: https://office.vfll.de/
+# nextcloud01: Host header of OnlyOffice's server-to-server calls (StorageUrl)
+vn_trusted_domains: [oonc, oonc.vfll.de, 45.9.61.229, nextcloud01]
+vn_overwriteprotocol: https
+vn_disable_mail: false

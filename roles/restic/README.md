@@ -72,6 +72,17 @@ restic_backup_set:
       - homebox
     hour: "3"
 
+  # Native (non-docker) Nextcloud with MySQL/MariaDB: maintenance mode on,
+  # DB dump to {{ restic_backup_dir }}/<name>, restic backup of dump + path +
+  # datadirectory (read from config.php), maintenance mode off.
+  - id: "Backup Nextcloud"
+    type: nextcloud
+    name: nextcloud
+    path: /var/www/nextcloud
+    tags:
+      - nextcloud
+    hour: "1"
+
   - id: "Backup Postgres database"
     type: postgres-dump
     container: postgres01

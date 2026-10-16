@@ -23,6 +23,12 @@
   tags:
     - restic
 
+- name: Include {{ role_name }} nextcloud backup tasks
+  ansible.builtin.include_tasks: "{{ role_name }}_nextcloud_backup.yml"
+  when: restic_backup_set is defined
+  tags:
+    - restic
+
 - name: Include {{ role_name }} odoo backup tasks
   ansible.builtin.include_tasks: "{{ role_name }}_odoo_backup.yml"
   when: restic_backup_set is defined
