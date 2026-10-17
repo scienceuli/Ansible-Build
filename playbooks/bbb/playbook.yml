@@ -1,0 +1,6 @@
+---
+- name: BigBlueButton play
+  hosts: bbb
+  roles:
+    - role: bbb_install
+      tags: bbb_install

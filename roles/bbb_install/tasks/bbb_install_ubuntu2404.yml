@@ -1,0 +1,25 @@
+---
+# https://docs.bigbluebutton.org/administration/install/#install
+# Runs once: skipped when bbb-conf already exists. Takes 15-30 min.
+- name: Download bbb-install.sh
+  ansible.builtin.get_url:
+    url: https://raw.githubusercontent.com/bigbluebutton/bbb-install/refs/heads/v4.0.x-release/bbb-install.sh
+    dest: /root/bbb-install.sh
+    mode: "0700"
+  become: true
+
+- name: Run bbb-install.sh (noble-400, Greenlight, UFW)
+  ansible.builtin.command:
+    cmd: >-
+      bash /root/bbb-install.sh -v noble-400
+      -s {{ bbb_install_hostname }}
+      -e {{ bbb_install_certbot_email }}
+      -g -w
+    creates: /usr/bin/bbb-conf
+  environment:
+    # bbb-install.sh refuses to run without a UTF-8 locale
+    LANG: C.UTF-8
+    LC_ALL: C.UTF-8
+  become: true
+  async: 3600
+  poll: 30
