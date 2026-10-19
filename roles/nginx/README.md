@@ -34,6 +34,7 @@ nginx_limit_req_zones:
     size: 20m # default 10m
     rate: 10r/s
 nginx_cache_enabled: true # default: false
+nginx_http2: true # default: false, HTTP/2 for all TLS proxies (nginx >= 1.25.1)
 
 nginx_proxies:
 
@@ -52,6 +53,7 @@ nginx_proxies:
       include /etc/nginx/conf.d/proxy-params.conf;
       add_header Strict-Transport-Security "max-age=15552000; includeSubdomains;"
     tls: true # default: false
+    http2: true # default: nginx_http2
 
   - src_hostname: example.com
     tls: true # default: false

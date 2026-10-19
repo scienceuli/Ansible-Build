@@ -50,6 +50,7 @@
     redirect_url: "{{ item.redirect_url | default(false) }}"
     root: "{{ item.root | default(false) }}"
     tls: "{{ item.tls | default(false) }}"
+    http2: "{{ item.http2 | default(nginx_http2) }}"
     dns: "{{ item.dns | default(false) }}"
     locations: "{{ item.locations | default(false) }}"
     server_names: "{{ item.server_names | default(false) }}"

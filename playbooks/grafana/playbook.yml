@@ -1,0 +1,29 @@
+---
+# Monitoring host joule: Grafana (+ Prometheus as role dependency) behind
+# nginx + Let's Encrypt, all as Docker containers. Alloy pushes joule's own
+# host and container metrics to Prometheus. Fresh server:
+#
+#   uv run ansible-playbook -i inventories playbooks/bootstrap.yml -l joule
+#   uv run ansible-playbook -i inventories playbooks/grafana/playbook.yml -t docker,docker_network
+#   uv run ansible-playbook -i inventories playbooks/setup.yml -l joule
+#   uv run ansible-playbook -i inventories playbooks/grafana/playbook.yml
+#
+# setup.yml creates the docker network, so Docker has to be there first.
+# Order matters: graf02 must be running before nginx tests its config
+# (nginx -t resolves the upstream), and certbot issues the certificate via a
+# temporary port-80-only nginx before the real one starts with TLS.
+- name: Grafana monitoring server
+  hosts: joule
+  roles:
+    - role: docker
+      tags: docker
+    - role: docker_network
+      tags: docker_network
+    - role: grafana
+      tags: grafana
+    - role: alloy
+      tags: alloy
+    - role: certbot
+      tags: certbot
+    - role: nginx
+      tags: nginx

@@ -1,0 +1,63 @@
+---
+# Additional hostnames that redirect to bbb_install_hostname. BBB itself only
+# knows one hostname (bbb-web, Greenlight, TURN), so aliases are 301 redirects.
+# TLS is terminated by haproxy with a single cert bundle, so the aliases are
+# added as SANs to the existing Let's Encrypt cert of bbb_install_hostname.
+- name: Deploy nginx alias redirect vhost
+  ansible.builtin.template:
+    src: bbb-aliases.nginx.j2
+    dest: /etc/nginx/sites-available/bbb-aliases
+    mode: "0644"
+  become: true
+  register: bbb_install_aliases_vhost
+
+- name: Enable nginx alias redirect vhost
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/bbb-aliases
+    dest: /etc/nginx/sites-enabled/bbb-aliases
+    state: link
+  become: true
+  register: bbb_install_aliases_link
+  # vhost file is not created in check mode
+  ignore_errors: "{{ ansible_check_mode }}"
+
+- name: Test nginx config  # noqa no-handler
+  ansible.builtin.command: nginx -t
+  become: true
+  changed_when: false
+  when: bbb_install_aliases_vhost.changed or bbb_install_aliases_link.changed
+
+# Needed before certbot: the ACME challenge for the aliases is served on port 80
+- name: Reload nginx  # noqa no-handler
+  ansible.builtin.systemd:
+    name: nginx
+    state: reloaded
+  become: true
+  when: bbb_install_aliases_vhost.changed or bbb_install_aliases_link.changed
+
+- name: Get SANs of current certificate
+  ansible.builtin.command:
+    cmd: openssl x509 -in /etc/letsencrypt/live/{{ bbb_install_hostname }}/cert.pem -noout -ext subjectAltName
+  become: true
+  register: bbb_install_cert_sans
+  changed_when: false
+  check_mode: false
+
+- name: Expand certificate with alias hostnames
+  ansible.builtin.command:
+    cmd: >-
+      certbot certonly --non-interactive --agree-tos
+      --webroot -w /var/www/bigbluebutton-default/assets
+      --cert-name {{ bbb_install_hostname }} --expand
+      --key-type ecdsa
+      -d {{ ([bbb_install_hostname] + bbb_install_aliases) | join(' -d ') }}
+  become: true
+  when: bbb_install_aliases | reject('in', bbb_install_cert_sans.stdout) | list | length > 0
+  register: bbb_install_cert_expand
+
+# Deploy hooks only run on renewal, not on certonly - rebuild haproxy bundle
+- name: Update haproxy cert bundle  # noqa no-handler
+  ansible.builtin.command:
+    cmd: /etc/letsencrypt/renewal-hooks/deploy/haproxy
+  become: true
+  when: bbb_install_cert_expand.changed

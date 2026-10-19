@@ -1,0 +1,15 @@
+---
+alloy_description: Grafana Alloy {{ inventory_hostname_short }}
+alloy_data_dir: /usr/share/{{ alloy_hostname }}
+alloy_volume_name: "{{ alloy_hostname }}"
+# Alloy UI (component graph, live debugging) - localhost only, use an SSH tunnel
+alloy_port: 127.0.0.1:12345
+alloy_scrape_interval: 30s
+# Value of the instance label on all metrics of this host
+alloy_instance: "{{ inventory_hostname }}"
+alloy_unix_enabled: true
+alloy_cadvisor_enabled: true
+# Basic auth for remote_write, needed when pushing over the internet
+# (e.g. https://prometheus.example.com/api/v1/write behind nginx)
+alloy_prometheus_basic_auth_username: ""
+alloy_prometheus_basic_auth_password: ""

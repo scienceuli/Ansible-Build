@@ -2,7 +2,7 @@
 # roles/homebox/defaults/main.yml
 
 homebox_image: "ghcr.io/sysadminsmedia/homebox"
-homebox_image_tag: "latest"          # pin a version tag once you've tested it, e.g. "v0.25.0"
+homebox_image_tag: "latest"          # pin a version tag once you've tested it, e.g. "0.25.0" (no "v" prefix)
 homebox_variant: ""                  # "" | "-rootless" | "-hardened"  -> appended to tag
 
 homebox_container_name: "homebox"

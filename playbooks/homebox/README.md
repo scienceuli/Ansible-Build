@@ -38,6 +38,12 @@ is needed on any command.
 
     ansible-playbook -i inventories playbooks/homebox/playbook.yml
 
+To only update the HomeBox container (re-render docker-compose.yml, pull
+the image and recreate the container if it changed) without touching any
+other role:
+
+    ansible-playbook -i inventories playbooks/homebox/playbook.yml --tags homebox_compose
+
 ## TLS / Let's Encrypt
 
 Both roles now issue their own certs via the shared `certbot_host` role
