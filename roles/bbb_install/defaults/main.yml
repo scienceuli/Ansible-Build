@@ -1,0 +1,6 @@
+---
+# Extra hostnames that 301-redirect to bbb_install_hostname (added to the cert)
+bbb_install_aliases: []
+
+# bbb-web.properties settings
+bbb_install_disabled_features: learningDashboard

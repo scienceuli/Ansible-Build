@@ -231,6 +231,27 @@
         var: vn_rewrite.stdout_lines
       when: vn_rewrite.stdout_lines is defined
 
+    # Deprecated keys carried over from the native install, also in
+    # tweaks.config.php (occ config:system:* only edits config.php). Every run,
+    # only writes when a key is still there.
+    - name: Write config renames
+      ansible.builtin.copy:
+        dest: "{{ vn_work_dir }}/config-renames.json"
+        mode: "0600"
+        content: "{{ {'rename': {'blacklisted_files': 'forbidden_filenames'}} | to_nice_json }}"
+
+    - name: Rename deprecated config keys
+      ansible.builtin.command: >-
+        docker run --rm --entrypoint sh -v {{ vn_volume.volume.Mountpoint }}/config:/config -v {{ vn_work_dir }}:/work:ro
+        {{ vn_nextcloud_image }} -c "php /work/rewrite-config.php /config /work/config-renames.json && chown 33:33 /config/*.php"
+      register: vn_renames
+      changed_when: vn_renames.stdout | length > 0
+
+    - name: Show renamed config keys
+      ansible.builtin.debug:
+        var: vn_renames.stdout_lines
+      when: vn_renames is changed
+
     # --- Nextcloud + OnlyOffice ---------------------------------------------
     - name: Nextcloud container
       ansible.builtin.include_role:

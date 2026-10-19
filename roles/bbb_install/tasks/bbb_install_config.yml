@@ -1,0 +1,9 @@
+---
+- name: Set disabledFeatures in bbb-web.properties
+  ansible.builtin.lineinfile:
+    path: /etc/bigbluebutton/bbb-web.properties
+    regexp: '^#?disabledFeatures='
+    line: "disabledFeatures={{ bbb_install_disabled_features }}"
+    create: true
+  become: true
+  notify: Restart BigBlueButton services

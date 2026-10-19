@@ -185,13 +185,27 @@ docker exec nextcloud01 tail -f /data/nextcloud.log
 docker logs -f nginx01
 ```
 
+### Logs - "document opens slowly / not at all"
+
+```sh
+occ log:tail 30                      # Nextcloud log, readable (same as Administration → Logging)
+docker logs --since 24h nginx01 | grep '" 5[0-9][0-9] \|" 499 '   # server errors, client gave up
+# per user/IP: an editor open is config/<fileId> (Nextcloud) → Editor.bin
+# (document content) → /doc/<key>/c/ 101 (websocket, logged when closed).
+# config without Editor.bin = editor never connected (often browser/antivirus/proxy)
+docker logs --since 24h nginx01 | grep -E 'onlyoffice/api/v1/config/|/cache/files/|/doc/.*/c/' | grep <ip>
+docker exec doc01 tail -f /var/log/onlyoffice/documentserver/docservice/out.log
+docker exec doc01 tail -f /var/log/onlyoffice/documentserver/converter/out.log
+```
+
 ## Pitfalls (found while migrating)
 
 - App-store apps must be in `custom_apps/`: the image's entrypoint replaces
   `apps/` on every upgrade. `apps_paths` is set in `config.php`.
 - `tweaks.config.php` is read after `config.php` and overrides it - keys the
   stack manages (redis, memcache, overwriteprotocol, logfile) were removed
-  from it; don't add them back there.
+  from it; don't add them back there. Deprecated keys (`blacklisted_files` →
+  `forbidden_filenames`) are renamed by `migrate.yml` on every run.
 - After an upgrade the app-store apps get newer versions that need another
   `occ upgrade`; the role does that (`Run pending occ upgrades`).
 - The old services are still installed on the host but stopped/disabled

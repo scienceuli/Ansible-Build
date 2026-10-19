@@ -29,12 +29,16 @@
     dest: "{{ homebox_compose_dir }}/docker-compose.yml"
     mode: "0644"
   register: homebox_compose_file
+  tags: [homebox_compose]
 
+# Running with `--tags homebox_compose` always pulls, so a moving tag like
+# "latest" is refreshed even when docker-compose.yml itself didn't change.
 - name: Pull and (re)start homebox via docker compose
   community.docker.docker_compose_v2:
     project_src: "{{ homebox_compose_dir }}"
     state: present
-    pull: "{{ 'always' if homebox_compose_file.changed else 'missing' }}"
+    pull: "{{ 'always' if (homebox_compose_file.changed or 'homebox_compose' in ansible_run_tags) else 'missing' }}"
+  tags: [homebox_compose]
 
 - name: Deploy nginx vhost + TLS for homebox
   when: homebox_configure_nginx

@@ -1,0 +1,53 @@
+---
+- name: Create {{ role_name }} volume
+  community.docker.docker_volume:
+    name: "{{ alloy_volume_name }}"
+
+- name: Ensure {{ role_name }} data dir exists
+  ansible.builtin.file:
+    path: "{{ alloy_data_dir }}"
+    state: directory
+
+- name: Copy {{ role_name }} conf
+  ansible.builtin.template:
+    src: config.alloy
+    dest: "{{ alloy_data_dir }}/config.alloy"
+    mode: "0600"
+  notify: Restart {{ role_name }} container
+
+- name: Start {{ role_name }} container {{ alloy_hostname }}
+  community.docker.docker_container:
+    name: "{{ alloy_hostname }}"
+    labels:
+      description: "{{ alloy_description }}"
+    image: "{{ alloy_image }}"
+    restart_policy: unless-stopped
+    # cAdvisor reads the cgroups of all containers
+    privileged: "{{ alloy_cadvisor_enabled }}"
+    # cgroup v2: with the default private cgroup namespace cAdvisor only sees
+    # its own cgroup as "/" and no containers
+    cgroupns_mode: "{{ 'host' if alloy_cadvisor_enabled else 'private' }}"
+    command: >
+      run
+      --server.http.listen-addr=0.0.0.0:12345
+      --storage.path=/var/lib/alloy/data
+      /etc/alloy/config.alloy
+    volumes:
+      - "{{ alloy_volume_name }}:/var/lib/alloy/data"
+      - "{{ alloy_data_dir }}/config.alloy:/etc/alloy/config.alloy:ro"
+      # Host view for prometheus.exporter.unix
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
+      # Disk model/serial labels of the diskstats collector
+      - /run/udev/data:/run/udev/data:ro
+      # Container view for prometheus.exporter.cadvisor. Docker 29 keeps its
+      # images in containerd, cAdvisor's docker factory needs both sockets.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    ports:
+      - "{{ alloy_port }}:12345"
+    networks:
+      - name: "{{ docker_network_name }}"

@@ -27,3 +27,26 @@
   when: ansible_distribution_major_version == '24'
   tags:
     - bbb_install
+
+- name: Include {{ role_name }} config tasks
+  ansible.builtin.include_tasks:
+    file: "{{ role_name }}_config.yml"
+    apply:
+      tags:
+        - bbb_install
+        - bbb_install_config
+  tags:
+    - bbb_install
+    - bbb_install_config
+
+- name: Include {{ role_name }} aliases tasks
+  ansible.builtin.include_tasks:
+    file: "{{ role_name }}_aliases.yml"
+    apply:
+      tags:
+        - bbb_install
+        - bbb_install_aliases
+  when: bbb_install_aliases | length > 0
+  tags:
+    - bbb_install
+    - bbb_install_aliases

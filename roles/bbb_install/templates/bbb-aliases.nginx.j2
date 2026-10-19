@@ -1,0 +1,33 @@
+# {{ ansible_managed }}
+# Alias hostnames redirecting to {{ bbb_install_hostname }}
+
+server {
+  listen 80;
+  listen [::]:80;
+  server_name {{ bbb_install_aliases | join(' ') }};
+
+  location ^~ / {
+    return 301 https://{{ bbb_install_hostname }}$request_uri;
+  }
+
+  location ^~ /.well-known/acme-challenge/ {
+    allow all;
+    default_type "text/plain";
+    root /var/www/bigbluebutton-default/assets;
+  }
+
+  location = /.well-known/acme-challenge/ {
+    return 404;
+  }
+}
+
+# HTTPS: haproxy terminates TLS on 443 and forwards to 81 (http/1.1) / 82 (h2)
+server {
+  listen 127.0.0.1:82 proxy_protocol;
+  listen [::1]:82;
+  listen 127.0.0.1:81 proxy_protocol;
+  listen [::1]:81;
+  server_name {{ bbb_install_aliases | join(' ') }};
+
+  return 301 https://{{ bbb_install_hostname }}$request_uri;
+}

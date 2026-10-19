@@ -1,0 +1,57 @@
+// {{ ansible_managed }}
+// Pipeline: exporter (produces targets) -> scrape -> relabel -> remote_write
+// Docs: https://grafana.com/docs/alloy/latest/reference/components/
+
+{% if alloy_unix_enabled %}
+// The exporters set job="integrations/<name>" (expected by the Grafana
+// integration dashboards), a job_name in prometheus.scrape doesn't override it.
+
+// Host metrics, built-in node_exporter
+prometheus.exporter.unix "host" {
+  procfs_path = "/host/proc"
+  sysfs_path  = "/host/sys"
+  rootfs_path = "/host/root"
+}
+
+prometheus.scrape "host" {
+  targets         = prometheus.exporter.unix.host.targets
+  scrape_interval = "{{ alloy_scrape_interval }}"
+  forward_to      = [prometheus.relabel.instance.receiver]
+}
+{% endif %}
+
+{% if alloy_cadvisor_enabled %}
+// Container metrics, built-in cAdvisor
+prometheus.exporter.cadvisor "docker" {
+  docker_host      = "unix:///var/run/docker.sock"
+  docker_only      = true
+  storage_duration = "5m"
+}
+
+prometheus.scrape "docker" {
+  targets         = prometheus.exporter.cadvisor.docker.targets
+  scrape_interval = "{{ alloy_scrape_interval }}"
+  forward_to      = [prometheus.relabel.instance.receiver]
+}
+{% endif %}
+
+// Same instance label for all metrics of this host
+prometheus.relabel "instance" {
+  rule {
+    target_label = "instance"
+    replacement  = "{{ alloy_instance }}"
+  }
+  forward_to = [prometheus.remote_write.default.receiver]
+}
+
+prometheus.remote_write "default" {
+  endpoint {
+    url = "{{ alloy_prometheus_url }}"
+{% if alloy_prometheus_basic_auth_username %}
+    basic_auth {
+      username = "{{ alloy_prometheus_basic_auth_username }}"
+      password = "{{ alloy_prometheus_basic_auth_password }}"
+    }
+{% endif %}
+  }
+}
