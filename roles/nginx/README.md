@@ -35,6 +35,7 @@ nginx_limit_req_zones:
     rate: 10r/s
 nginx_cache_enabled: true # default: false
 nginx_http2: true # default: false, HTTP/2 for all TLS proxies (nginx >= 1.25.1)
+nginx_resolver: 127.0.0.11 # default: "", resolve upstreams per request (Docker DNS) - nginx survives stopped app containers
 
 nginx_proxies:
 

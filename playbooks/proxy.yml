@@ -1,0 +1,22 @@
+---
+# nginx + certbot containers for all apps of a docker host (nginx_proxies in
+# host_vars/<host>), e.g. on hertz: Nextcloud, OnlyOffice, Moodle.
+# Deploy the app containers first: nginx -t resolves the upstreams - unless
+# nginx_resolver is set (hertz, gauss), then they're resolved per request.
+#   uv run ansible-playbook -i inventories playbooks/proxy.yml -l hertz
+#   uv run ansible-playbook -i inventories playbooks/proxy.yml -l hertz -t nginx
+- name: Reverse proxy + TLS
+  hosts: all
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Require a host limit
+      ansible.builtin.assert:
+        that: ansible_limit is defined
+        fail_msg: "Run with -l <host>, e.g. -l hertz"
+      run_once: true
+      tags: always
+  roles:
+    - role: certbot
+      tags: certbot
+    - role: nginx
+      tags: nginx

@@ -1,6 +1,3 @@
 ---
-dependencies:
-  - role: mariadb
-    tags:
-      - mariadb
-      - depends
+# The database role (mariadb or postgres) is listed in the playbook.
+dependencies: []

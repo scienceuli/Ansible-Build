@@ -1,9 +1,17 @@
 ---
 moodle_description: Moodle
 moodle_volume_name: "{{ moodle_hostname }}"
+moodle_code_volume_name: "{{ moodle_hostname }}_code"
+moodle_site_url: http://localhost
+moodle_reverseproxy: "false"
+moodle_sslproxy: "false"
+moodle_language: en
 moodle_database_type: mariadb
-moodle_mysql_client_flavor: mariadb
+moodle_database_port: "3306"
 moodle_smtp_port: "587"
 moodle_smtp_protocol: tls
-moodle_php_max_upload_filesize: 32M
-moodle_skip_install: "false"
+moodle_mail_noreply_address: "{{ moodle_smtp_user }}"
+moodle_php_max_upload_filesize: 50M
+# Pull on every run: erseco/alpine-moodle rebuilds its version tags (e.g.
+# v5.3.0) with new Alpine/PHP packages; recreated only when the image changed.
+moodle_pull: true

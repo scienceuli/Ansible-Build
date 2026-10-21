@@ -2,7 +2,10 @@
 # roles/nextcloud/defaults/main.yml
 
 nextcloud_image: "nextcloud"
-nextcloud_image_tag: "31-apache"     # pin to a specific minor once tested, e.g. "31.0.2-apache"
+nextcloud_image_tag: "32-apache"     # pin to a specific minor once tested, e.g. "32.0.15-apache"; one major at a time!
+# Pull on every run so rebuilt images of a moving tag (PHP security fixes)
+# get deployed; the stack is only recreated when the image changed.
+nextcloud_pull: true
 
 nextcloud_container_name: "nextcloud-app"
 nextcloud_host_port: 3101

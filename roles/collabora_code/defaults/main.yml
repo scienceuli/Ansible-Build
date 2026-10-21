@@ -1,9 +1,18 @@
 ---
 collabora_code_port: 9980
+# Host ports to publish; [] when only a proxy on docker_network_name talks to it
+collabora_code_ports:
+  - "{{ collabora_code_port }}:9980"
 collabora_code_description: Collabora Code
-collabora_code_data_dir: /usr/share/{{ collabora_code_hostname }}
 collabora_code_username: admin
 collabora_code_password: "{{ vault_collabora_code_password }}"
 collabora_code_host: ""
 collabora_code_alias1: ""
+# WOPI hosts (Nextcloud, Moodle, ...) allowed to use this server, one entry per
+# aliasgroupN env var: "https://host:443[,https://alias:443]"
+collabora_code_aliasgroups: "{{ [[collabora_code_host, collabora_code_alias1] | select | join(',')] | select | list }}"
 collabora_code_ssl_enabled: true
+# true when TLS ends at a reverse proxy (ssl_enabled false): Collabora then
+# hands out https:// and wss:// URLs
+collabora_code_ssl_termination: false
+collabora_code_extra_params: ""

@@ -81,8 +81,8 @@ command.
 **Proxy / certificates** (after changing `nginx_proxies` in `host_vars/hertz`):
 
 ```sh
-uv run ansible-playbook -i inventories playbooks/vfll_nextcloud/proxy.yml        # certbot + nginx
-uv run ansible-playbook -i inventories playbooks/vfll_nextcloud/proxy.yml -t nginx
+uv run ansible-playbook -i inventories playbooks/proxy.yml -l hertz        # certbot + nginx
+uv run ansible-playbook -i inventories playbooks/proxy.yml -l hertz -t nginx
 ```
 
 New domains get a certificate automatically (port 80 must reach hertz, DNS

@@ -1,0 +1,155 @@
+---
+# Restore the VFLL WordPress backup (backup.yml) into the fresh stack of
+# playbooks/wordpress.yml (gauss-mysql01 + wordpress01 must run): pushes the newest
+# backup from the controller, replaces the database and wp-content, runs the
+# WordPress database upgrade and compares URLs and post counts with the
+# backup's site-info.txt. Guarded by a marker - re-run with -e vfllwp_force=true
+# to restore again (drops the database!).
+#   uv run ansible-playbook -i inventories playbooks/vfll_wordpress/restore.yml
+#   uv run ansible-playbook -i inventories playbooks/vfll_wordpress/restore.yml -e vfllwp_backup_name=2026-10-21_1658
+# Controller tasks set ansible_become as a var: the inventory's ansible_become
+# would override the become keyword (no sudo password on the controller).
+- name: Restore VFLL WordPress
+  hosts: gauss
+  become: true
+  vars:
+    vfllwp_local_dir: "{{ lookup('env', 'HOME') }}/Backups/gauss-vfllwp"
+    vfllwp_remote_dir: /var/tmp/vfllwp-restore
+    vfllwp_force: false
+    vfllwp_url: https://lektorenverband.de
+    # wp-cli with the volume and env of wordpress01; uid 33 = www-data of the
+    # Debian based wordpress image (the alpine cli image has 82)
+    vfllwp_wp: >-
+      docker run --rm --user 33:33 --volumes-from {{ wordpress_hostname }}
+      --network {{ docker_network_name }}
+      -e WORDPRESS_DB_HOST={{ wordpress_db_hostname }} -e WORDPRESS_DB_USER={{ wordpress_db_user }}
+      -e WORDPRESS_DB_PASSWORD={{ wordpress_db_password }} -e WORDPRESS_DB_NAME={{ wordpress_db_name }}
+      wordpress:cli wp
+  tasks:
+    - name: Find newest backup on the controller
+      ansible.builtin.shell: ls -1d {{ vfllwp_local_dir }}/20*/ | tail -1 | xargs basename
+      register: vfllwp_newest
+      delegate_to: localhost
+      vars:
+        ansible_become: false
+      changed_when: false
+      when: vfllwp_backup_name is undefined
+
+    - name: Set backup
+      ansible.builtin.set_fact:
+        vfllwp_backup_name: "{{ vfllwp_backup_name | default(vfllwp_newest.stdout) }}"
+
+    - name: Verify checksums on the controller
+      ansible.builtin.command: shasum -a 256 -c SHA256SUMS
+      args:
+        chdir: "{{ vfllwp_local_dir }}/{{ vfllwp_backup_name }}"
+      delegate_to: localhost
+      vars:
+        ansible_become: false
+      changed_when: false
+
+    - name: Check restore marker
+      ansible.builtin.stat:
+        path: "{{ vfllwp_remote_dir }}/.restored"
+      register: vfllwp_marker
+
+    - name: Stop if already restored
+      ansible.builtin.meta: end_host
+      when: vfllwp_marker.stat.exists and not vfllwp_force | bool
+
+    - name: Create restore dir
+      ansible.builtin.file:
+        path: "{{ vfllwp_remote_dir }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        mode: "0700"
+
+    - name: Push backup to {{ inventory_hostname }}
+      ansible.posix.synchronize:
+        src: "{{ vfllwp_local_dir }}/{{ vfllwp_backup_name }}/"
+        dest: "{{ vfllwp_remote_dir }}/{{ vfllwp_backup_name }}/"
+      vars:
+        ansible_become: false
+
+    - name: Verify checksums on {{ inventory_hostname }}
+      ansible.builtin.command: sha256sum -c SHA256SUMS
+      args:
+        chdir: "{{ vfllwp_remote_dir }}/{{ vfllwp_backup_name }}"
+      changed_when: false
+
+    - name: Wait for {{ mysql_hostname }}
+      ansible.builtin.command: docker exec {{ mysql_hostname }} sh -c 'mysqladmin ping -uroot -p"$MYSQL_ROOT_PASSWORD" --silent'
+      register: vfllwp_ping
+      until: vfllwp_ping.rc == 0
+      retries: 30
+      delay: 5
+      changed_when: false
+
+    - name: Stop {{ wordpress_hostname }}
+      community.docker.docker_container:
+        name: "{{ wordpress_hostname }}"
+        state: stopped
+
+    # The user's grants are on `wordpress`.* by name and survive the drop
+    - name: Replace database {{ wordpress_db_name }}
+      ansible.builtin.shell: |
+        set -o pipefail
+        docker exec {{ mysql_hostname }} sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "
+          DROP DATABASE IF EXISTS \`{{ wordpress_db_name }}\`;
+          CREATE DATABASE \`{{ wordpress_db_name }}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"'
+        gunzip -c {{ vfllwp_remote_dir }}/{{ vfllwp_backup_name }}/wordpress.sql.gz \
+          | docker exec -i {{ mysql_hostname }} sh -c 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" {{ wordpress_db_name }}'
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Get volume path of {{ wordpress_volume_name }}
+      community.docker.docker_volume_info:
+        name: "{{ wordpress_volume_name }}"
+      register: vfllwp_volume
+
+    - name: Replace wp-content
+      ansible.builtin.shell: |
+        set -e
+        cd {{ vfllwp_volume.volume.Mountpoint }}
+        rm -rf wp-content
+        tar -xf {{ vfllwp_remote_dir }}/{{ vfllwp_backup_name }}/wp-content.tar
+        chown -R 33:33 wp-content
+      changed_when: true
+
+    - name: Start {{ wordpress_hostname }}
+      community.docker.docker_container:
+        name: "{{ wordpress_hostname }}"
+        state: started
+
+    # The image's core is newer than the backup's (6.8.11)
+    - name: Upgrade WordPress database
+      ansible.builtin.command: "{{ vfllwp_wp }} core update-db"
+      no_log: true
+      changed_when: true
+
+    - name: Read restored site
+      ansible.builtin.command: "{{ vfllwp_wp }} eval 'echo get_option(\"siteurl\"), \" \", get_option(\"home\"), \" \", wp_count_posts()->publish, \" \", get_bloginfo(\"version\");'"
+      register: vfllwp_site
+      no_log: true
+      changed_when: false
+
+    - name: Read site info of the backup
+      ansible.builtin.slurp:
+        src: "{{ vfllwp_remote_dir }}/{{ vfllwp_backup_name }}/site-info.txt"
+      register: vfllwp_info
+
+    - name: Compare with the backup
+      ansible.builtin.assert:
+        that:
+          - vfllwp_site.stdout.split()[0] == vfllwp_url
+          - vfllwp_site.stdout.split()[1] == vfllwp_url
+          - vfllwp_site.stdout.split()[2] == (vfllwp_info.content | b64decode | regex_search('^post\tpublish\t(\\d+)$', '\\1', multiline=True) | first)
+        success_msg: "Restored: {{ vfllwp_site.stdout }} (siteurl, home, published posts, WordPress version)"
+        fail_msg: "Mismatch: {{ vfllwp_site.stdout }} - see {{ vfllwp_remote_dir }}/{{ vfllwp_backup_name }}/site-info.txt"
+
+    - name: Write restore marker
+      ansible.builtin.copy:
+        content: "{{ vfllwp_backup_name }}\n"
+        dest: "{{ vfllwp_remote_dir }}/.restored"
+        mode: "0600"

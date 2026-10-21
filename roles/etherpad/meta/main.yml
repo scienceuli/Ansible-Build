@@ -1,0 +1,3 @@
+---
+# The database role (mariadb) is listed in the playbook.
+dependencies: []

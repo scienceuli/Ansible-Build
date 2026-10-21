@@ -4,6 +4,8 @@
     name: docker_volume
   vars:
     docker_volume_name: "{{ moodle_volume_name }}"
+    docker_volumes:
+      - name: "{{ moodle_code_volume_name }}"
     docker_volume_backup_set: "{{ moodle_volume_backup_set | default([]) }}"
   when: moodle_volume_name is defined
 
@@ -13,31 +15,36 @@
     labels:
       description: "{{ moodle_description }}"
     image: "{{ moodle_image }}"
+    pull: "{{ moodle_pull }}"
     restart_policy: unless-stopped
     env:
+      SITE_URL: "{{ moodle_site_url }}"
+      REVERSEPROXY: "{{ moodle_reverseproxy }}"
+      SSLPROXY: "{{ moodle_sslproxy }}"
       MOODLE_USERNAME: "{{ moodle_username }}"
       MOODLE_PASSWORD: "{{ moodle_password }}"
       MOODLE_EMAIL: "{{ moodle_email }}"
-      MOODLE_SITE_NAME: "{{ moodle_site_name }}"
-      MOODLE_DATABASE_TYPE: "{{ moodle_database_type }}"
-      MOODLE_DATABASE_HOST: "{{ moodle_database_host }}"
-      MOODLE_DATABASE_USER: "{{ moodle_database_user }}"
-      MOODLE_DATABASE_PASSWORD: "{{ moodle_database_password }}"
-      MOODLE_DATABASE_NAME: "{{ moodle_database_name }}"
-      MOODLE_SMTP_HOST: "{{ moodle_smtp_host }}"
-      MOODLE_SMTP_PORT: "{{ moodle_smtp_port }}"
-      MOODLE_SMTP_USER: "{{ moodle_smtp_user }}"
-      MOODLE_SMTP_PASSWORD: "{{ moodle_smtp_password }}"
-      MOODLE_SMTP_PROTOCOL: "{{ moodle_smtp_protocol }}"
-      MYSQL_CLIENT_FLAVOR: "{{ moodle_mysql_client_flavor }}"
-      MYSQL_CLIENT_DATABASE_HOST: "{{ moodle_database_host }}"
-      MYSQL_CLIENT_DATABASE_ROOT_PASSWORD: "{{ moodle_mysql_database_root_password }}"
-      MYSQL_CLIENT_CREATE_DATABASE_NAME: "{{ moodle_database_name }}"
-      MYSQL_CLIENT_CREATE_DATABASE_USER: "{{ moodle_database_user }}"
-      MYSQL_CLIENT_CREATE_DATABASE_PASSWORD: "{{ moodle_database_password }}"
-      MOODLE_SKIP_INSTALL: "{{ moodle_skip_install }}"
-      PHP_UPLOAD_MAX_FILESIZE: "{{ moodle_php_max_upload_filesize }}"
+      # The image passes this unquoted to install.php (breaks on spaces); only
+      # used at install, rename the site later in the admin UI.
+      MOODLE_SITENAME: "{{ moodle_site_name | replace(' ', '_') }}"
+      MOODLE_LANGUAGE: "{{ moodle_language }}"
+      DB_TYPE: "{{ moodle_database_type }}"
+      DB_HOST: "{{ moodle_database_host }}"
+      DB_PORT: "{{ moodle_database_port }}"
+      DB_NAME: "{{ moodle_database_name }}"
+      DB_USER: "{{ moodle_database_user }}"
+      DB_PASS: "{{ moodle_database_password }}"
+      SMTP_HOST: "{{ moodle_smtp_host }}"
+      SMTP_PORT: "{{ moodle_smtp_port }}"
+      SMTP_USER: "{{ moodle_smtp_user }}"
+      SMTP_PASSWORD: "{{ moodle_smtp_password }}"
+      SMTP_PROTOCOL: "{{ moodle_smtp_protocol }}"
+      MOODLE_MAIL_NOREPLY_ADDRESS: "{{ moodle_mail_noreply_address }}"
+      upload_max_filesize: "{{ moodle_php_max_upload_filesize }}"
+      post_max_size: "{{ moodle_php_max_upload_filesize }}"
+      client_max_body_size: "{{ moodle_php_max_upload_filesize }}"
     volumes:
-      - "{{ moodle_volume_name }}:/bitnami/moodledata"
+      - "{{ moodle_code_volume_name }}:/var/www/html"
+      - "{{ moodle_volume_name }}:/var/www/moodledata"
     networks:
       - name: "{{ docker_network_name }}"

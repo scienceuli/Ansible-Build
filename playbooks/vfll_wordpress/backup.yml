@@ -1,0 +1,134 @@
+---
+# Backup of the old VFLL WordPress (lektorenverband.de) on gauss before the
+# reinstall: docker compose stack in /srv/wordpress/vfllwp (wp_db + wordpress,
+# jwilder nginx-proxy). Dumps the database, packs wp-content and the old
+# project config (.env, certs, scripts), pulls everything to the controller
+# and verifies the checksums there. Run it again right before wiping gauss -
+# restore.yml takes the newest backup. Needs the database container (wp_db)
+# running; the wordpress container may be stopped.
+#   uv run ansible-playbook -i inventories playbooks/vfll_wordpress/backup.yml
+# Controller tasks set ansible_become as a var: the inventory's ansible_become
+# would override the become keyword (no sudo password on the controller).
+- name: Backup old VFLL WordPress
+  hosts: gauss
+  become: true
+  vars:
+    vfllwp_dir: /srv/wordpress/vfllwp
+    vfllwp_db_container: wp_db
+    vfllwp_wp_container: wordpress
+    vfllwp_remote_dir: /var/tmp/vfllwp-backup
+    vfllwp_local_dir: "{{ lookup('env', 'HOME') }}/Backups/gauss-vfllwp"
+  tasks:
+    - name: Set backup name
+      ansible.builtin.set_fact:
+        vfllwp_backup: "{{ vfllwp_remote_dir }}/{{ now(fmt='%Y-%m-%d_%H%M') }}"
+
+    - name: Create backup dir
+      ansible.builtin.file:
+        path: "{{ vfllwp_backup }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        mode: "0700"
+
+    # InnoDB: --single-transaction gives a consistent dump without locking the site
+    - name: Dump database
+      ansible.builtin.shell: |
+        set -o pipefail
+        docker exec {{ vfllwp_db_container }} sh -c 'exec mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" \
+          --single-transaction --quick --routines --triggers --events --no-tablespaces \
+          --set-gtid-purged=OFF --default-character-set=utf8mb4 "$MYSQL_DATABASE"' \
+          | gzip > {{ vfllwp_backup }}/wordpress.sql.gz
+        zcat {{ vfllwp_backup }}/wordpress.sql.gz | tail -1 | grep -q 'Dump completed'
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    # Mostly images - no compression
+    - name: Pack wp-content
+      ansible.builtin.command: tar -C {{ vfllwp_dir }}/wordpress -cf {{ vfllwp_backup }}/wp-content.tar wp-content
+      changed_when: true
+
+    - name: Pack old project config (.env, certs, nginx, scripts)
+      ansible.builtin.command: >-
+        tar -C {{ vfllwp_dir }} -czf {{ vfllwp_backup }}/project-config.tar.gz
+        --exclude=./database --exclude=./wordpress --exclude=./wpbackup --exclude=./mysqldumps .
+      changed_when: true
+
+    # Works with the wordpress container stopped (docker cp/inspect); only
+    # the database container has to run
+    - name: Write site info (versions, URLs, row counts)
+      ansible.builtin.shell: |
+        {
+          echo "date: $(date -Is)"
+          docker cp {{ vfllwp_wp_container }}:/var/www/html/wp-includes/version.php - | tar -xO | grep '^\$wp_version'
+          docker inspect -f '{{ '{{' }}range .Config.Env{{ '}}' }}{{ '{{' }}println .{{ '}}' }}{{ '{{' }}end{{ '}}' }}' {{ vfllwp_wp_container }} | sed -n 's/^PHP_VERSION=/php /p'
+          docker exec {{ vfllwp_db_container }} sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N "$MYSQL_DATABASE" -e "
+            select @@version;
+            select option_name, option_value from wp_options where option_name in (\"siteurl\",\"home\",\"template\",\"stylesheet\",\"active_plugins\");
+            select post_type, post_status, count(*) from wp_posts group by 1,2;
+            select \"comments\", count(*) from wp_comments;
+            select \"users\", count(*) from wp_users;"' 2>/dev/null
+        } > {{ vfllwp_backup }}/site-info.txt
+      changed_when: true
+
+    - name: Write checksums
+      ansible.builtin.shell: sha256sum wordpress.sql.gz wp-content.tar project-config.tar.gz site-info.txt > SHA256SUMS
+      args:
+        chdir: "{{ vfllwp_backup }}"
+      changed_when: true
+
+    - name: Hand backup files to {{ ansible_user }} (rsync without sudo)
+      ansible.builtin.file:
+        path: "{{ vfllwp_backup }}"
+        owner: "{{ ansible_user }}"
+        mode: u=rwX,go=
+        recurse: true
+
+    - name: Get backup size
+      ansible.builtin.command: du -sk {{ vfllwp_backup }}
+      register: vfllwp_size
+      changed_when: false
+
+    - name: Create local backup dir
+      ansible.builtin.file:
+        path: "{{ vfllwp_local_dir }}"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      vars:
+        ansible_become: false
+
+    - name: Check free space on the controller
+      ansible.builtin.command: df -k {{ vfllwp_local_dir }}
+      register: vfllwp_local_df
+      delegate_to: localhost
+      vars:
+        ansible_become: false
+      changed_when: false
+
+    - name: Require backup size + 2 GB free on the controller
+      ansible.builtin.assert:
+        that: (vfllwp_local_df.stdout_lines[-1].split()[3] | int) > (vfllwp_size.stdout.split()[0] | int) + 2097152
+        fail_msg: "Not enough space in {{ vfllwp_local_dir }} for {{ (vfllwp_size.stdout.split()[0] | int / 1048576) | round(1) }} GB"
+
+    # scp: the old Debian 12 has no rsync
+    - name: Pull backup to the controller
+      ansible.builtin.command: >-
+        scp -q -r {{ ansible_user }}@{{ ansible_host }}:{{ vfllwp_backup }} {{ vfllwp_local_dir }}/
+      delegate_to: localhost
+      vars:
+        ansible_become: false
+      changed_when: true
+
+    - name: Verify checksums on the controller
+      ansible.builtin.command: shasum -a 256 -c SHA256SUMS
+      args:
+        chdir: "{{ vfllwp_local_dir }}/{{ vfllwp_backup | basename }}"
+      delegate_to: localhost
+      vars:
+        ansible_become: false
+      changed_when: false
+
+    - name: Backup location
+      ansible.builtin.debug:
+        msg: "{{ vfllwp_local_dir }}/{{ vfllwp_backup | basename }} ({{ (vfllwp_size.stdout.split()[0] | int / 1048576) | round(1) }} GB)"

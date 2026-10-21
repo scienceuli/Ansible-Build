@@ -51,7 +51,7 @@ image=$(docker inspect $container --format='{{.Config.Image}}')
 
 if $all; then
     if [[ "$image" =~ 'mariadb' ]]; then
-        database_list=($(docker exec $container /bin/bash -c "mysql -u \$MARIADB_USER --password=\$MARIADB_PASSWORD \
+        database_list=($(docker exec $container /bin/bash -c "\$(command -v mariadb || echo mysql) -u \$MARIADB_USER --password=\$MARIADB_PASSWORD \
       -Bse 'SHOW DATABASES' | grep -v -E '^(sys|information_schema|mysql|performance_schema)$'"))
     fi
     if [[ "$image" =~ 'mysql' ]]; then
@@ -75,8 +75,9 @@ do
     if [[ "$image" =~ 'mariadb' ]]; then
         echo "Run Docker MariaDB backup for $database"
         rm -f "${dir}/${container}/${database}.sql"
-        docker exec $container /bin/bash -c "mysqldump -u \$MARIADB_USER --password=\$MARIADB_PASSWORD \
-            $database" > "${dir}/${container}/${database}.sql"
+        # MariaDB >= 11 images only ship mariadb-dump (no mysqldump symlink)
+        docker exec $container /bin/bash -c "\$(command -v mariadb-dump || echo mysqldump) -u \$MARIADB_USER --password=\$MARIADB_PASSWORD \
+            --single-transaction $database" > "${dir}/${container}/${database}.sql"
     fi
     if [[ "$image" =~ 'mysql' ]]; then
         echo "Run Docker MySQL backup for $database"

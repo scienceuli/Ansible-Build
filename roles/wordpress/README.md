@@ -24,6 +24,10 @@ wordpress_db_hostname: mysql01
 wordpress_db_user: wordpress
 wordpress_db_password: # default: "{{ vault_wordpress_db_password }}"
 wordpress_db_name: wordpress
+wordpress_pull: true # default: true unless wordpress_build_image
+wordpress_env: # default: {}
+  WORDPRESS_CONFIG_EXTRA: define('DISABLE_WP_CRON', true);
+# Optional - the official image ignores WORDPRESS_SMTP_* (custom images only)
 wordpress_smtp_secure: tls
 wordpress_smtp_hostname: mail.example.com
 wordpress_smtp_port: "587"

@@ -1,0 +1,13 @@
+---
+# Collabora Online (CODE) as a standalone container on the docker network of
+# the host (docker_network_name), usable by several WOPI hosts (Nextcloud,
+# Moodle, ...). Host joins the inventory group "collabora", config in
+# host_vars/<host>/collabora.yml (+ collabora_vault.yml).
+#   ./task play -i inventories playbooks/collabora.yml -l <host>
+# Afterwards: reverse proxy + TLS with playbooks/proxy.yml -l <host> (nginx_proxies)
+- name: Collabora play
+  hosts: collabora
+  become: true
+  roles:
+    - role: collabora_code
+      tags: collabora_code
