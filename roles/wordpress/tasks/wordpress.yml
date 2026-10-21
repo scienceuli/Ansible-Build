@@ -24,20 +24,14 @@
     labels:
       description: "{{ wordpress_description }}"
     image: "{{ wordpress_image }}"
+    pull: "{{ wordpress_pull }}"
     restart_policy: unless-stopped
-    env:
-      WORDPRESS_DB_HOST: "{{ wordpress_db_hostname }}"
-      WORDPRESS_DB_USER: "{{ wordpress_db_user }}"
-      WORDPRESS_DB_PASSWORD: "{{ wordpress_db_password }}"
-      WORDPRESS_DB_NAME: "{{ wordpress_db_name }}"
-      WORDPRESS_SMTP_HOST: "{{ wordpress_smtp_hostname }}"
-      WORDPRESS_SMTP_PORT: "{{ wordpress_smtp_port }}"
-      WORDPRESS_SMTP_SECURE: "{{ wordpress_smtp_secure }}"
-      WORDPRESS_SMTP_USERNAME: "{{ wordpress_smtp_username }}"
-      WORDPRESS_SMTP_PASSWORD: "{{ wordpress_smtp_password }}"
-      WORDPRESS_SMTP_FROM: "{{ wordpress_smtp_from }}"
-      WORDPRESS_SMTP_FROM_NAME: "{{ wordpress_smtp_from }}"
-      WORDPRESS_SMTP_AUTH: "true"
+    env: "{{ {
+      'WORDPRESS_DB_HOST': wordpress_db_hostname,
+      'WORDPRESS_DB_USER': wordpress_db_user,
+      'WORDPRESS_DB_PASSWORD': wordpress_db_password,
+      'WORDPRESS_DB_NAME': wordpress_db_name,
+      } | combine(wordpress_smtp_env if wordpress_smtp_hostname is defined else {}) | combine(wordpress_env) }}"
     volumes:
       - "{{ wordpress_volume_name }}:/var/www/html"
       - "{{ wordpress_data_dir }}/upload.ini:/usr/local/etc/php/conf.d/upload.ini"

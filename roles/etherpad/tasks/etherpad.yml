@@ -1,0 +1,36 @@
+---
+# Pads live in the database; the volume only holds var/ (installed_plugins.json,
+# sessionkey). Env vars are read by settings.json.docker of the image.
+- name: Include docker volume role
+  ansible.builtin.include_role:
+    name: docker_volume
+  vars:
+    docker_volume_name: "{{ etherpad_volume_name }}"
+    docker_volume_backup_set: "{{ etherpad_volume_backup_set | default([]) }}"
+  when: etherpad_volume_name is defined
+
+- name: Start {{ role_name }} container {{ etherpad_hostname }}
+  community.docker.docker_container:
+    name: "{{ etherpad_hostname }}"
+    labels:
+      description: "{{ etherpad_description }}"
+    image: "{{ etherpad_image }}"
+    restart_policy: unless-stopped
+    env:
+      TITLE: "{{ etherpad_title }}"
+      ADMIN_PASSWORD: "{{ etherpad_admin_password }}"
+      TRUST_PROXY: "{{ etherpad_trust_proxy }}"
+      DEFAULT_PAD_TEXT: "{{ etherpad_default_pad_text }}"
+      REQUIRE_AUTHENTICATION: "{{ etherpad_require_authentication }}"
+      LOGLEVEL: "{{ etherpad_loglevel }}"
+      DB_TYPE: "{{ etherpad_database_type }}"
+      DB_HOST: "{{ etherpad_database_host }}"
+      DB_PORT: "{{ etherpad_database_port }}"
+      DB_NAME: "{{ etherpad_database_name }}"
+      DB_USER: "{{ etherpad_database_user }}"
+      DB_PASS: "{{ etherpad_database_password }}"
+      DB_CHARSET: "{{ etherpad_database_charset }}"
+    volumes:
+      - "{{ etherpad_volume_name }}:/opt/etherpad-lite/var"
+    networks:
+      - name: "{{ docker_network_name }}"

@@ -1,0 +1,18 @@
+---
+# Moodle (erseco/alpine-moodle) + its own MariaDB as containers on the docker
+# network of the host (docker_network_name). Host independent: a host gets
+# Moodle by joining the inventory group "moodle" and defining its config in
+# host_vars/<host>/moodle.yml (+ moodle_vault.yml).
+#   ./task play -i inventories playbooks/moodle.yml -l <host>
+#   ./task play -i inventories playbooks/moodle.yml -l <host> -t moodle
+# Afterwards (the app container must run first, nginx -t resolves it):
+#   reverse proxy + TLS: playbooks/proxy.yml -l <host> (nginx_proxies)
+#   backup jobs:         restic role, -t restic -l <host> (restic_backup_set)
+- name: Moodle play
+  hosts: moodle
+  become: true
+  roles:
+    - role: mariadb
+      tags: mariadb
+    - role: moodle
+      tags: moodle

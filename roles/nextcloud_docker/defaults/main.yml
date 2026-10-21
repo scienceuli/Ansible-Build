@@ -17,6 +17,10 @@ nextcloud_docker_extra_volumes: []
 # e.g. ["127.0.0.1:8090:80"] for tests without nginx
 nextcloud_docker_ports: []
 
+# Pull on every run so rebuilt images of a moving tag (PHP security fixes)
+# get deployed; the container is only recreated when the image changed.
+nextcloud_docker_pull: true
+
 nextcloud_docker_timezone: Europe/Berlin
 nextcloud_docker_php_memory_limit: 1G
 nextcloud_docker_php_upload_limit: 10G

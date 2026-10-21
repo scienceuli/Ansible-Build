@@ -1,0 +1,32 @@
+---
+# Etherpad (etherpad/etherpad) + its own MariaDB as containers on the docker
+# network of the host (docker_network_name). A host gets Etherpad by joining
+# the inventory group "etherpad" and defining its config in
+# host_vars/<host>/etherpad.yml (+ etherpad_vault.yml).
+#   ./task play -i inventories playbooks/etherpad.yml -l <host>
+#   ./task play -i inventories playbooks/etherpad.yml -l <host> -t etherpad
+# Afterwards (the app container must run first, nginx -t resolves it):
+#   reverse proxy + TLS: playbooks/proxy.yml -l <host> (nginx_proxies)
+#   backup jobs:         restic role, -t restic -l <host> (restic_backup_set)
+#
+# The database vars are prefixed (etherpad_mariadb_*) and mapped here, because
+# host_vars mariadb_* are host wide and would clash with other apps on the
+# same host (e.g. Moodle's mariadb02 in moodle.yml). Role vars win over
+# host_vars.
+- name: Etherpad play
+  hosts: etherpad
+  become: true
+  roles:
+    - role: mariadb
+      tags: mariadb
+      vars:
+        mariadb_image: "{{ etherpad_mariadb_image }}"
+        mariadb_hostname: "{{ etherpad_mariadb_hostname }}"
+        mariadb_volume_name: "{{ etherpad_mariadb_hostname }}"
+        mariadb_root_password: "{{ etherpad_mariadb_root_password }}"
+        mariadb_database: "{{ etherpad_database_name }}"
+        mariadb_user: "{{ etherpad_database_user }}"
+        mariadb_password: "{{ etherpad_database_password }}"
+        mariadb_command: "{{ etherpad_mariadb_command | default('') }}"
+    - role: etherpad
+      tags: etherpad

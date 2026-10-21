@@ -1,0 +1,11 @@
+---
+etherpad_description: Etherpad
+etherpad_volume_name: "{{ etherpad_hostname }}"
+etherpad_title: Etherpad
+etherpad_trust_proxy: "false"
+etherpad_default_pad_text: ""
+etherpad_require_authentication: "false"
+etherpad_database_type: mysql
+etherpad_database_port: "3306"
+etherpad_database_charset: utf8mb4
+etherpad_loglevel: WARN

@@ -4,3 +4,18 @@ wordpress_description: WordPress
 wordpress_volume_name: "{{ wordpress_hostname }}"
 wordpress_db_password: "{{ vault_wordpress_db_password }}"
 wordpress_data_dir: /usr/share/{{ wordpress_hostname }}
+# Pull on every run so rebuilt images of a moving tag (PHP security fixes)
+# get deployed; not for a locally built image (wordpress:<hostname>).
+wordpress_pull: "{{ not wordpress_build_image }}"
+# Extra container env, e.g. WORDPRESS_CONFIG_EXTRA
+wordpress_env: {}
+# Only set when wordpress_smtp_hostname is defined
+wordpress_smtp_env:
+  WORDPRESS_SMTP_HOST: "{{ wordpress_smtp_hostname }}"
+  WORDPRESS_SMTP_PORT: "{{ wordpress_smtp_port }}"
+  WORDPRESS_SMTP_SECURE: "{{ wordpress_smtp_secure }}"
+  WORDPRESS_SMTP_USERNAME: "{{ wordpress_smtp_username }}"
+  WORDPRESS_SMTP_PASSWORD: "{{ wordpress_smtp_password }}"
+  WORDPRESS_SMTP_FROM: "{{ wordpress_smtp_from }}"
+  WORDPRESS_SMTP_FROM_NAME: "{{ wordpress_smtp_from }}"
+  WORDPRESS_SMTP_AUTH: "true"

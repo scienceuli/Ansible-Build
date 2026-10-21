@@ -9,6 +9,7 @@
     labels:
       description: "{{ nextcloud_docker_description }}"
     image: "{{ nextcloud_docker_image }}"
+    pull: "{{ nextcloud_docker_pull }}"
     restart_policy: unless-stopped
     env: "{{ {
       'TZ': nextcloud_docker_timezone,
