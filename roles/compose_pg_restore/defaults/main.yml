@@ -1,0 +1,13 @@
+---
+# Restore a pg_dump (custom format, pg_dump -Fc) into the Postgres service of
+# a docker compose stack, replacing the database. Meant to be included from
+# an app role (vfllcms, eventmanager) when a restore is requested explicitly.
+
+# Required:
+#   compose_pg_restore_dump         - pg_dump -Fc file on the CONTROL machine
+#   compose_pg_restore_project_dir  - compose project dir on the target host
+#   compose_pg_restore_db_container - container name of the db service
+#   compose_pg_restore_db_name      - database to replace
+#   compose_pg_restore_db_user      - POSTGRES_USER of the db container (superuser)
+#   compose_pg_restore_app_services - compose services to stop while restoring
+#                                     (everything that connects to the db)

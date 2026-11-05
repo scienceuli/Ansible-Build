@@ -1,0 +1,6 @@
+---
+- name: Include {{ role_name }} tasks
+  ansible.builtin.include_tasks: "{{ role_name }}.yml"
+  when: fast_note_sync_image is defined
+  tags:
+    - fast_note_sync

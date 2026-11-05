@@ -13,7 +13,7 @@
       description: "{{ postgres_description }}"
     image: "{{ postgres_image }}"
     restart_policy: unless-stopped
-    shm_size: "1G"
+    shm_size: "{{ postgres_shm_size }}"
     env:
       POSTGRES_USER: "{{ postgres_user }}"
       POSTGRES_PASSWORD: "{{ postgres_password }}"
@@ -27,7 +27,7 @@
 
 - name: Wait for {{ role_name }} container
   ansible.builtin.pause:
-    seconds: "5"
+    seconds: "15"
   when: start_postgres_container.changed
 
 - name: List {{ role_name }} databases

@@ -1,0 +1,44 @@
+---
+odoo_scripts_dir: /usr/local/bin
+bash_completion_dir: /etc/bash_completion.d
+odoo_build_image: false
+odoo_build_dockerfile: ""
+odoo_configmap:
+  - hostname: "{{ odoo_hostname }}"
+odoo_timezone: Europe/Zurich
+odoo_description: Odoo
+odoo_state: started
+odoo_ports: []
+odoo_data_dir: /usr/share/{{ odoo_hostname }}
+odoo_owner: root
+odoo_group: root
+odoo_volume_name: "{{ odoo_hostname }}"
+odoo_postgres_user: "{{ postgres_user }}"
+odoo_postgres_password: "{{ vault_postgres_password }}"
+odoo_master_password: "{{ vault_odoo_master_password | default('') }}"
+odoo_dbfilter: "^%d$"
+odoo_list_db: "false"
+odoo_proxy_mode: "true"
+odoo_log_level: info
+odoo_etc_hosts: {}
+odoo_sysctls_disable_ipv6: 1
+odoo_conf_limit_request: 8192
+odoo_conf_limit_time_cpu: 600
+odoo_conf_limit_time_real: 1200
+odoo_workers: 5
+# The official odoo image ignores the mintsystem env vars (DB_FILTER, LIST_DB, ...),
+# so the options are passed as command args instead.
+odoo_official_command: >-
+  {{ ['--',
+      '--db-filter=' ~ odoo_dbfilter,
+      '--workers=' ~ (odoo_workers | int),
+      '--limit-request=' ~ (odoo_conf_limit_request | int),
+      '--limit-time-cpu=' ~ (odoo_conf_limit_time_cpu | int),
+      '--limit-time-real=' ~ (odoo_conf_limit_time_real | int),
+      '--log-level=' ~ odoo_log_level]
+     + ([] if odoo_list_db | bool else ['--no-database-list'])
+     + (['--proxy-mode'] if odoo_proxy_mode | bool else []) }}
+# Initialize this database with odoo_init_modules if it isn't yet (unset: skip).
+# odoo_init_database: odoo
+odoo_init_modules: base
+odoo_init_language: en_US

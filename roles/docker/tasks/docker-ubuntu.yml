@@ -5,6 +5,13 @@
     dest: /etc/apt/keyrings/docker.asc
     mode: "0644"
 
+# Manual installs left docker.list with signed-by=docker.gpg; apt fails on the
+# conflicting Signed-By of the repo added below (signed-by=docker.asc).
+- name: Remove legacy {{ role_name }} apt source
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/docker.list
+    state: absent
+
 - name: Add {{ role_name }} repo
   ansible.builtin.apt_repository:
     repo: "{{ docker_apt_repo }}"

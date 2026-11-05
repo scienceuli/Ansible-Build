@@ -1,0 +1,23 @@
+---
+- name: Odoo play
+  hosts: odoo
+  # kelvin_odoo owns postgres01 (postgres_image is only set there), so run
+  # both hosts together; with -l kelvin_odoo_staging alone postgres01 is not managed.
+  roles:
+    - role: postgres
+      tags: odoo
+    - role: docker
+      tags:
+        - odoo
+        - docker
+    - role: odoo
+      tags:
+        - odoo
+        - odoo_scripts
+        - restic
+    - role: odoo_repos
+      tags: odoo_repos
+    - role: odoo_data
+      tags: odoo_data
+    - role: packages
+      tags: packages

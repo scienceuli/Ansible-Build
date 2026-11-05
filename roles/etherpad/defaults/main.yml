@@ -9,3 +9,6 @@ etherpad_database_type: mysql
 etherpad_database_port: "3306"
 etherpad_database_charset: utf8mb4
 etherpad_loglevel: WARN
+etherpad_require_session: "false"
+etherpad_edit_only: "false"
+etherpad_authentication_method: "apikey"

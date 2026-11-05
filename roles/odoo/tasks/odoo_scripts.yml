@@ -1,0 +1,46 @@
+---
+- name: Ensure {{ role_name }} scripts dir exists
+  ansible.builtin.file:
+    path: "{{ odoo_scripts_dir }}"
+    state: directory
+
+- name: Copy {{ role_name }} scripts
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ odoo_scripts_dir }}/{{ item }}"
+    mode: +x
+  loop:
+    - docker-odoo-backup
+    - docker-odoo-clear-assets
+    - docker-odoo-clear-views
+    - docker-odoo-clear-rules
+    - docker-odoo-cloc
+    - docker-odoo-drop
+    - docker-odoo-duplicate
+    - docker-odoo-init
+    - docker-odoo-list
+    - docker-odoo-openupgrade
+    - docker-odoo-patch
+    - docker-odoo-restore
+    - docker-odoo-shell
+    - docker-odoo-uninstall
+    - docker-odoo-update
+    - docker-odoo-user
+    - docker-odoo-neutralize
+    - docker-odoo-rename
+    - docker-odoo-upgrade
+    - odoo-backup
+    - odoo-drop
+    - odoo-duplicate
+    - odoo-restore
+
+- name: Ensure bash completion dir exists
+  ansible.builtin.file:
+    path: "{{ bash_completion_dir }}"
+    state: directory
+
+- name: Copy docker-odoo completion script
+  ansible.builtin.copy:
+    src: docker-odoo
+    dest: "{{ bash_completion_dir }}/docker-odoo"
+    mode: +x

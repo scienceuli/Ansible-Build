@@ -1,0 +1,63 @@
+---
+# Before the container tasks: odoo.yml uses docker-odoo-init
+- name: Include {{ role_name }} scripts tasks
+  ansible.builtin.include_tasks: "{{ role_name }}_scripts.yml"
+  tags:
+    - odoo
+    - odoo_scripts
+
+- name: On build set new image tag {{ role_name }}:{{ odoo_hostname }}
+  ansible.builtin.set_fact:
+    odoo_image: "odoo:{{ odoo_hostname }}"
+    odoo_build_image: "{{ odoo_image }}"
+  when: odoo_build_image and odoo_image.startswith('odoo')
+  tags:
+    - odoo
+
+- name: On build set new image tag mintsystem:{{ odoo_hostname }}
+  ansible.builtin.set_fact:
+    odoo_image: "mintsytem:{{ odoo_hostname }}"
+    odoo_build_image: "{{ odoo_image }}"
+  when: odoo_build_image and odoo_image.startswith('mintsystem')
+  tags:
+    - odoo
+
+- name: Include {{ role_name }} build tasks
+  ansible.builtin.include_tasks: "{{ role_name }}_build.yml"
+  when: odoo_build_image and odoo_build_image != odoo_image
+  tags:
+    - odoo
+
+- name: Include {{ role_name }} tasks
+  ansible.builtin.include_tasks: "{{ role_name }}.yml"
+  when: odoo_image is defined and odoo_configmap|length == 1
+  tags:
+    - odoo
+
+#FIXME: Setup configmap filter: configmap_filter is not defined or (configmap_filter is defined and item.hostname == configmap_filter)
+
+- name: Include {{ role_name }} configmap tasks
+  ansible.builtin.include_tasks: "{{ role_name }}_configmap.yml"
+  when: odoo_configmap is defined and odoo_configmap|length > 1
+  tags:
+    - odoo
+
+- name: Include {{ role_name }} data tasks
+  ansible.builtin.include_tasks: "{{ role_name }}_data.yml"
+  when: odoo_data_files is defined
+  tags:
+    - odoo
+
+- name: Include {{ role_name }} backup from restic client role
+  ansible.builtin.include_role:
+    name: restic
+    apply:
+      tags:
+        - odoo_backup
+    tasks_from: restic_odoo_backup
+  vars:
+    restic_backup_set: "{{ odoo_backup_set }}"
+  when: odoo_backup_set is defined
+  tags:
+    - restic
+    - odoo_backup

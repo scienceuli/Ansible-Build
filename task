@@ -31,6 +31,7 @@ help-table() {
     rows+=("lint||Lint Ansible roles and playbooks.")
     rows+=("source||Source the Python virtual env.")
     rows+=("===REPORT===| | ")
+    rows+=("list-backups|[host]|List restic snapshots of host (all repos on the restic server).")
     rows+=("get-last-hostname|[role]|Search inventory for \$ROLE_hostname entries.")
     rows+=("list-hosts|[path] [grep]|Lists all hosts of an inventory.")
     rows+=("list-roles||Lists all roles.")
@@ -423,6 +424,32 @@ lint() {
 }
 
 # Report
+
+list-backups() {
+    if [[ -z "$1" ]]; then echo '$1 is empty'; exit 1; fi
+
+    # Clients have the restic-main wrapper. On the restic server, list every
+    # repo in the backup dir; the repo password comes in on stdin so it doesn't
+    # show up in the process list. --no-lock: read-only, and doesn't leave
+    # root-owned lock files in repos owned by the rest server.
+    local script
+    script=$(cat <<'EOF'
+if [ -x /usr/local/bin/restic-main ]; then
+    exec /usr/local/bin/restic-main snapshots
+fi
+read -r RESTIC_PASSWORD; export RESTIC_PASSWORD
+for repo in "{{ restic_server_backup_dir | default('') }}"/*/; do
+    [ -f "$repo/config" ] || continue
+    echo "=== ${repo%/}"
+    restic -r "$repo" --no-lock --no-cache snapshots || echo "Failed to read $repo"
+    echo
+done
+EOF
+)
+
+    ansible "$1" -i inventories/hosts.yml -b -m ansible.builtin.shell \
+        -a "$(jq -n --arg cmd "$script" '{cmd: $cmd, stdin: "{{ restic_repo_password }}"}')"
+}
 
 list-hosts() {
     if [[ -z "$1" ]]; then echo '$1 is empty'; exit; fi

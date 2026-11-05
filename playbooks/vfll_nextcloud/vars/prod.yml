@@ -30,3 +30,11 @@ vn_office_public_url: https://office.vfll.de/
 vn_trusted_domains: [oonc, oonc.vfll.de, 45.9.61.229, nextcloud01]
 vn_overwriteprotocol: https
 vn_disable_mail: false
+
+# https://hub.docker.com/r/xperimental/nextcloud-exporter
+nextcloud_exporter_image: xperimental/nextcloud-exporter:latest
+nextcloud_exporter_hostname: "{{ nextcloud_hostname | replace('nextcloud', 'nexport') }}"
+nextcloud_exporter_nginx_data_dir: /usr/share/nginx14/proxies
+nextcloud_exporter_server: "http://{{ nextcloud_hostname }}"
+nextcloud_exporter_username: "{{ nextcloud_admin_user }}"
+nextcloud_exporter_password: "{{ nextcloud_admin_password }}"

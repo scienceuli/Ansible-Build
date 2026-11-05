@@ -1,6 +1,23 @@
 ---
 # Pads live in the database; the volume only holds var/ (installed_plugins.json,
 # sessionkey). Env vars are read by settings.json.docker of the image.
+- name: Etherpad config directory
+  ansible.builtin.file:
+    path: /srv/{{ etherpad_volume_name }}
+    state: directory
+    owner: "5001"
+    group: "0"
+    mode: "0750"
+
+- name: Etherpad API key
+  ansible.builtin.copy:
+    dest: /srv/{{ etherpad_volume_name }}/APIKEY.txt
+    content: "{{ etherpad_api_key }}"
+    owner: "5001"      # etherpad user in the official image
+    group: "0"
+    mode: "0640"
+  when: etherpad_api_key is defined
+
 - name: Include docker volume role
   ansible.builtin.include_role:
     name: docker_volume
@@ -30,7 +47,11 @@
       DB_USER: "{{ etherpad_database_user }}"
       DB_PASS: "{{ etherpad_database_password }}"
       DB_CHARSET: "{{ etherpad_database_charset }}"
+      REQUIRE_SESSION: "{{ etherpad_require_session }}"
+      EDIT_ONLY: "{{ etherpad_edit_only }}"
+      AUTHENTICATION_METHOD: "{{ etherpad_authentication_method}}"
     volumes:
       - "{{ etherpad_volume_name }}:/opt/etherpad-lite/var"
+      - "/srv/{{ etherpad_volume_name }}/APIKEY.txt:/opt/etherpad-lite/APIKEY.txt:ro"
     networks:
       - name: "{{ docker_network_name }}"

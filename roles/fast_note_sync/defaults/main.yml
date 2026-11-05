@@ -1,0 +1,9 @@
+---
+fast_note_sync_description: Fast Note Sync (Obsidian)
+fast_note_sync_data_dir: /usr/share/{{ fast_note_sync_hostname }}
+fast_note_sync_ext_api_url: https://{{ fast_note_sync_domain }}
+fast_note_sync_auth_token_key: "{{ vault_fast_note_sync_auth_token_key }}"
+fast_note_sync_share_token_key: "{{ vault_fast_note_sync_share_token_key }}"
+# Open registration only for the first run to create the account:
+#   -e fast_note_sync_register_enabled=true
+fast_note_sync_register_enabled: false

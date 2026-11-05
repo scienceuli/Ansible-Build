@@ -16,7 +16,33 @@
       run_once: true
       tags: always
   roles:
+    - role: cadvisor
+      tags: cadvisor
+    - role: alloy
+      tags: alloy
+    - role: node_exporter
+      tags: node_exporter
+    - role: mysqld_exporter
+      tags: mysqld_exporter
+    - role: postgres_exporter
+      tags: postgres_exporter
+    - role: blackbox_exporter
+      tags: blackbox_exporter
+    - role: bigbluebutton_exporter
+      tags: bigbluebutton_exporter
+    - role: nextcloud_exporter
+      tags: nextcloud_exporter
+    - role: odoo_exporter
+      tags: odoo_exporter
+    - role: restic_exporter
+      tags: restic_exporter
+    - role: promtail
+      tags: promtail
+    - role: htpasswd
+      tags: htpasswd
     - role: certbot
       tags: certbot
     - role: nginx
       tags: nginx
+    - role: nginx_waf
+      tags: nginx_waf

@@ -1,0 +1,39 @@
+---
+- name: Ensure {{ role_name }} dirs exist
+  ansible.builtin.file:
+    path: "{{ fast_note_sync_data_dir }}/{{ item }}"
+    state: directory
+  loop:
+    - config
+    - storage
+
+# nginx reaches the container via the docker network, so the service has to
+# trust that subnet for X-Forwarded-* (default: loopback only)
+- name: Get subnet of docker network {{ docker_network_name }}
+  community.docker.docker_network_info:
+    name: "{{ docker_network_name }}"
+  register: fast_note_sync_network
+
+- name: Set trusted proxies
+  ansible.builtin.set_fact:
+    fast_note_sync_trusted_proxies: "{{ fast_note_sync_network.network.IPAM.Config | map(attribute='Subnet') | list }}"
+
+- name: Copy {{ role_name }} config
+  ansible.builtin.template:
+    src: config.yaml
+    dest: "{{ fast_note_sync_data_dir }}/config/config.yaml"
+    mode: "0600"
+  notify: Restart {{ role_name }} container
+
+- name: Start {{ role_name }} container {{ fast_note_sync_hostname }}
+  community.docker.docker_container:
+    name: "{{ fast_note_sync_hostname }}"
+    labels:
+      description: "{{ fast_note_sync_description }}"
+    image: "{{ fast_note_sync_image }}"
+    restart_policy: unless-stopped
+    volumes:
+      - "{{ fast_note_sync_data_dir }}/config:/fast-note-sync/config"
+      - "{{ fast_note_sync_data_dir }}/storage:/fast-note-sync/storage"
+    networks:
+      - name: "{{ docker_network_name }}"

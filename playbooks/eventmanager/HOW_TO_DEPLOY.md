@@ -143,6 +143,74 @@ Then set the `Site` domain - see
   `uv run ansible-playbook -i inventories playbooks/eventmanager/playbook.yml -t nginx`
 - **Server baseline changed:** re-run step 3.
 
+## Restore a production dump
+
+Replaces the database with a `pg_dump -Fc` file from your Mac (role
+`compose_pg_restore`: stops web + mailqueue, drops/recreates the db, restores
+in one transaction, starts the app, which migrates):
+
+```sh
+uv run ansible-playbook -i inventories playbooks/eventmanager/playbook.yml \
+  -l faraday,faraday_eventmanager -e eventmanager_restore_dump=$HOME/path/to/eventmanager.pgdump
+```
+
+Files are separate. Private uploads go to `data/private`, not `data/media` -
+nginx serves `media/` publicly (bohr kept everything in `media/`):
+
+```sh
+B=~/Devel/vfll_backups/migration_2026-11/eventmanager_media   # copy of bohr's media/
+H=scienceuli@faraday.science-and-more.com; D=/opt/docker/eventmanager/data
+rsync -a --rsync-path="sudo rsync" --exclude=/invoices/ --exclude=/confirmations/ \
+  --exclude=/uploaded_private_documents/ --exclude=/stornos/ $B/ $H:$D/media/
+for p in invoices confirmations uploaded_private_documents stornos; do
+  [ -d "$B/$p" ] && rsync -a --rsync-path="sudo rsync" "$B/$p/" "$H:$D/private/$p/"
+done
+ssh $H "sudo chown -R 1000:1000 $D/media $D/private"
+```
+
+## Cutover from bohr (veranstaltungskalender.vfll.de)
+
+faraday already runs with production's `SECRET_KEY`/`ENCRYPT_KEY`, SMTP and
+member-admin settings (`host_vars/faraday_eventmanager`), but on its own
+name, with mails to files, without Mailgun and without the cron job. The
+`CUTOVER` comments in `host_vars/faraday_eventmanager/vars.yml` and
+`host_vars/faraday/vars.yml` mark what to switch. Expect ~30 min downtime.
+
+1. **A day before:** lower the TTL of `veranstaltungskalender.vfll.de` at
+   all-inkl (KAS) to 300 s.
+2. **Freeze bohr:** set `MAINTENANCE_MODE = True` in
+   `~/eventmanager_dev/eventmanager/local_settings.py`, restart gunicorn
+   (`sudo systemctl restart gunicornemdev`), and comment out the
+   `manage.py crontab run` and `backup_em.sh` lines in `crontab -e`.
+3. **Fresh copy:** dump on bohr and fetch the media again (see
+   "Restore a production dump"; rsync only transfers what changed):
+   ```sh
+   ssh scienceuli@bohr.science-and-more.com 'f=~/eventmanager_dev/eventmanager/.env; g(){ grep -m1 "^$1=" $f | cut -d= -f2-; }; PGPASSWORD="$(g DB_PASSWORD)" pg_dump -Fc -h "$(g DB_HOST)" -U "$(g DB_USER)" -d "$(g DB_NAME)"' > ~/Devel/vfll_backups/migration_2026-11/eventmanager_cutover.pgdump
+   rsync -a scienceuli@bohr.science-and-more.com:eventmanager_dev/media/ ~/Devel/vfll_backups/migration_2026-11/eventmanager_media/
+   ```
+4. **Switch faraday** (`CUTOVER` in `host_vars/faraday_eventmanager/vars.yml`):
+   `eventmanager_domain: veranstaltungskalender.vfll.de`,
+   `eventmanager_domain_aliases: [faraday.science-and-more.com]`, SMTP
+   backend, Mailgun from the vault, `eventmanager_cron_jobs` with
+   `fetch_emails`. Then restore and deploy in one go:
+   ```sh
+   uv run ansible-playbook -i inventories playbooks/eventmanager/playbook.yml \
+     -l faraday,faraday_eventmanager -e eventmanager_restore_dump=$HOME/Devel/vfll_backups/migration_2026-11/eventmanager_cutover.pgdump
+   ```
+   plus the media rsync from "Restore a production dump".
+5. **DNS:** point the A record of `veranstaltungskalender.vfll.de` to
+   `37.27.144.199`; wait until `dig +short veranstaltungskalender.vfll.de`
+   shows it.
+6. **TLS:** uncomment the `veranstaltungskalender.vfll.de` entry in
+   `host_vars/faraday/vars.yml`, then
+   `uv run ansible-playbook -i inventories playbooks/eventmanager/playbook.yml -l faraday -t certbot,nginx`.
+7. **Check:** site, admin login, one invoice download (via the app), a test
+   registration mail, `/media/invoices/...` must be 404.
+   `journalctl -t eventmanager-cron` the next morning.
+8. **bohr** keeps showing the maintenance page for clients with an old DNS
+   answer; stop it (`sudo systemctl disable --now gunicornemdev`) once
+   traffic is gone.
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |

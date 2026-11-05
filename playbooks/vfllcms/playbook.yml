@@ -1,0 +1,23 @@
+---
+# VFLL Wagtail CMS, as a docker compose stack, on two hosts with different
+# topologies (role defaults/host_vars pick the right one per host):
+#   bohr  (production): host nginx + host Postgres - deploy only.
+#   hertz (staging):    containerized nginx (nginx_proxies) + containerized,
+#                        seeded Postgres - deploy, then also run
+#                        playbooks/proxy.yml -l hertz to pick up the new
+#                        nginx_proxies entry (nginx -t resolves the
+#                        upstream, so vfllcms-web must already be running).
+#
+#   uv run ansible-playbook -i inventories playbooks/vfllcms/playbook.yml -l bohr
+#   uv run ansible-playbook -i inventories playbooks/vfllcms/playbook.yml -l hertz
+#   uv run ansible-playbook -i inventories playbooks/proxy.yml -l hertz
+- name: Docker + shared network
+  hosts: vfllcms
+  roles:
+    - docker_network
+
+- name: Deploy VFLL Wagtail CMS
+  hosts: vfllcms
+  become: true
+  roles:
+    - vfllcms

@@ -1,0 +1,26 @@
+---
+# Fast Note Sync (Obsidian sync server) on joule behind nginx + Let's Encrypt.
+# Independent of the Grafana stack, but shares nginx02/certbot02 with it:
+# the nginx role renders all nginx_proxies of the host, so graf02 must be
+# running too when nginx tests its config.
+#
+# First run - open registration, create the account in the web UI:
+#   uv run ansible-playbook -i inventories playbooks/fast_note_sync/playbook.yml -e fast_note_sync_register_enabled=true
+# Then close registration again:
+#   uv run ansible-playbook -i inventories playbooks/fast_note_sync/playbook.yml -t fast_note_sync
+#
+# Order matters: the container must be running before nginx tests its config
+# (nginx -t resolves the upstream).
+- name: Fast Note Sync server
+  hosts: joule
+  roles:
+    - role: docker
+      tags: docker
+    - role: docker_network
+      tags: docker_network
+    - role: fast_note_sync
+      tags: fast_note_sync
+    - role: certbot
+      tags: certbot
+    - role: nginx
+      tags: nginx

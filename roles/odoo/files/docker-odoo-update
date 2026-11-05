@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -e
+
+# Get script name
+script=$(basename "$0")
+version="1.1.0"
+
+# Display Help
+help() {
+    echo
+    echo "$script"
+    echo
+    echo 'Description: Update Odoo modules in Docker container.'
+    echo "Syntax: $script [-c|-d|-u|-V|help]"
+    echo 'Example: $script -c odoo01 -d erp -u hr_timesheet -o'
+    echo 'options:'
+    echo '  -c    Docker container. Defaults to '\''odoo'\''.'
+    echo '  -d    Database name.'
+    echo '  -u    List of odoo modules to update.'
+    echo '  -o    Overwrite tranlsations.'
+    echo "  -V    Show $script version."
+    echo "  help  Show $script manual."
+    echo
+}
+
+# Show help and exit
+if [[ "$1" == 'help' ]]; then
+    help
+    exit
+fi
+
+# Set defaults
+overwrite_translations=""
+
+# Process params
+while getopts ':c: :d: :u: :o :V' opt; do
+    case $opt in
+        c) container="$OPTARG";;
+        d) database="$OPTARG";;
+        u) modules="$OPTARG";;
+        o) overwrite_translations='--i18n-overwrite';;
+        V) echo "$script version $version"
+        exit 0
+        ;;
+        \?) echo "Invalid option -$OPTARG" >&2
+        help
+        exit;;
+    esac
+done
+
+# Fallback to environment vars and default values
+: "${container:=odoo}"
+
+# Verify variables
+[[ -z "$database" ]] && { echo 'Parameter -d|database is empty.' ; exit 1; }
+[[ -z "$modules" ]] && { echo 'Parameter -u|update is empty.' ; exit 1; }
+
+# Switch container name with id
+container_id=$(docker ps -f "name=$container" --format '{{.ID}}' | head -n1)
+[[ -z "$container_id" ]] && { echo "Container id for $container not found." ; exit 1; }
+
+# Update with Docker exec
+echo "Update modules $modules on database $database."
+docker exec "$container_id" /bin/bash -c "
+unset ODOO_ADDONS_PATH
+unset ADDONS_PATH
+odoo -d $database -u $modules --db_host=\$PGHOST --db_user=\$PGUSER --db_password=\$PGPASSWORD --stop-after-init --no-http $overwrite_translations
+"

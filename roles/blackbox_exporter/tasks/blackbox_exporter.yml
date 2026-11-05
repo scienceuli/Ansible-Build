@@ -1,0 +1,26 @@
+---
+- name: Ensure {{ role_name }} data dir exists
+  ansible.builtin.file:
+    path: "{{ blackbox_exporter_data_dir }}"
+    state: directory
+
+- name: Copy {{ role_name }} conf files
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ blackbox_exporter_data_dir }}/"
+  loop:
+    - files/config.yml
+  notify: Restart {{ role_name }} container
+
+- name: Start {{ role_name }} container {{ blackbox_exporter_hostname }}
+  community.docker.docker_container:
+    name: "{{ blackbox_exporter_hostname }}"
+    labels:
+      description: "{{ blackbox_exporter_description }}"
+    image: "{{ blackbox_exporter_image }}"
+    restart_policy: unless-stopped
+    command: --config.file=/etc/blackbox_exporter/config.yml
+    volumes:
+      - "{{ blackbox_exporter_data_dir }}:/etc/blackbox_exporter"
+    networks:
+      - name: "{{ docker_network_name }}"

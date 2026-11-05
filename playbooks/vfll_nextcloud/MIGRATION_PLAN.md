@@ -22,10 +22,32 @@ Follow-ups:
 - [x] `127.0.0.1:8090` dropped - only nginx01 reaches nextcloud01
 - [x] restore test of the container backup (snapshot `6e8ecf5f`: volume identical except maintenance flag, 171 tables, identical row counts)
 - [ ] MariaDB tuning hints (Administration → System → Database)
-- [ ] ~2 weeks without problems: remove native php8.1-fpm, MariaDB, Redis, nginx, certbot/acme.sh,
-      `/var/www/nextcloud`, `ONLYOFFICEDOCKER` + `/app/onlyoffice`; old docker apt source → `docker` role
+- [x] native environment removed 2026-11-02, after checking the container
+      backups (nightly snapshots 10-18 → 11-02 complete, dump = 171 tables = live,
+      volume = 35.0.2, `restic check` ok, offsite copy identical). Before: restic
+      snapshot `a6c798e8` (tag `native-final`: fresh native DB dump, `/var/www/nextcloud`,
+      `/app/onlyoffice`, `/etc/{nginx,php,mysql,redis,letsencrypt}`, crontabs, old
+      scripts, 2023 app volume). Then: 37 packages purged (PHP 8.1, MariaDB 10.8,
+      Redis 6, nginx, certbot) + autoremove, 635 apt holds cleared, nginx/MariaDB
+      apt sources and keyrings, `/var/lib/mysql`, `#MIGRATED` cron lines,
+      `ONLYOFFICEDOCKER` + three hello-world containers, `docker-onlyoffice-nextcloud_*`
+      and `compose_*` volumes, ~40 anonymous volumes (old document server:
+      PostgreSQL 14, RabbitMQ, logs), network `compose_ebau.local`, unused images
+      (nextcloud 26-34, old onlyoffice, …) - `/` 106 → 64 GB used
+- [x] fail2ban (hand-made `/etc/fail2ban/jail.d/nextcloud.local`, not from the
+      `fail2ban` role) failed to start after the next reboot (2026-11-03): its
+      `nginx-http-auth` jail had no log any more. Fixed: that jail off, the
+      `nextcloud` jail reads `/data/nextcloud.log` (container) instead of the
+      native `/var/log/nextcloud/nextcloud.log` and bans in `DOCKER-USER`
+      (published container ports bypass INPUT; test ban checked). Original in
+      `nextcloud.local.bak`
+- [ ] fail2ban of hertz into Ansible (`fail2ban` role + a nextcloud jail);
+      remove the stale native log dir `/var/log/nextcloud`
+- [ ] old docker apt source → `docker` role (file name is already the role's,
+      the arch comes from `docker_apt_arch` now)
 
-Rollback now only via restic (`a17afd00` = native 26.0.1 state).
+Rollback now only via restic (`a17afd00` = native 26.0.1 state, `a6c798e8` =
+leftovers at the removal).
 
 **Originally planned window: Friday 2026-10-16, 20:00-22:00** (announced to
 users via the Announcement Center app, installed 2026-10-12).

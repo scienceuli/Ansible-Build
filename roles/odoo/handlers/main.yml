@@ -1,0 +1,24 @@
+---
+- name: Restart odoo container
+  community.docker.docker_container:
+    name: "{{ odoo_hostname }}"
+    restart: true
+  when: odoo_configmap|length == 1
+
+- name: Restart odoo container
+  community.docker.docker_container:
+    name: "{{ odoo_hostname }}-{{ item.name }}"
+    restart: true
+  loop: "{{ odoo_configmap }}"
+  when: odoo_configmap|length > 1
+
+- name: Build odoo custom image
+  community.docker.docker_image:
+    name: "{{ odoo_image }}"
+    build:
+      path: "{{ docker_build_dir }}/{{ odoo_hostname }}"
+      pull: true
+    source: build
+    force_source: true
+    force_tag: true
+    state: present

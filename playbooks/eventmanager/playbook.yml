@@ -16,6 +16,8 @@
 - name: Reverse proxy + TLS on faraday (nginx_proxies in host_vars/faraday)
   hosts: faraday
   roles:
+    - role: htpasswd
+      tags: htpasswd
     - role: certbot
       tags: certbot
     - role: nginx

@@ -1,0 +1,61 @@
+{{ ansible_managed | comment }}
+services:
+{% if vfllcms_db_containerized %}
+  db:
+    image: "{{ vfllcms_db_image }}"
+    container_name: "vfllcms-db"
+    restart: "{{ vfllcms_restart_policy }}"
+    environment:
+      POSTGRES_DB: "{{ vfllcms_db_name }}"
+      POSTGRES_USER: "{{ vfllcms_db_user }}"
+      POSTGRES_PASSWORD: {{ vfllcms_db_password | replace('$', '$$') | to_json }}
+    volumes:
+      - "{{ vfllcms_db_data_dir }}:/var/lib/postgresql/data"
+{% if vfllcms_db_seed_dump != "" %}
+      # Only used the very first time: postgres only runs
+      # docker-entrypoint-initdb.d scripts against an empty data dir.
+      - "{{ vfllcms_db_seed_dump }}:/docker-entrypoint-initdb.d/seed.pgdump:ro"
+      - "{{ vfllcms_compose_dir }}/seed-restore.sh:/docker-entrypoint-initdb.d/seed-restore.sh:ro"
+{% endif %}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{ vfllcms_db_user }} -d {{ vfllcms_db_name }}"]
+      interval: 5s
+      retries: 20
+
+{% endif %}
+  web:
+    build: ./src
+    image: "vfllcms:latest"
+    container_name: "vfllcms-web"
+    restart: "{{ vfllcms_restart_policy }}"
+    command: ["uv", "run", "gunicorn", "rocketman.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "{{ vfllcms_gunicorn_workers }}", "--access-logfile", "-"]
+    env_file: .env
+    environment:
+      RUN_MIGRATIONS: "1"
+{% if vfllcms_db_containerized %}
+    depends_on:
+      db:
+        condition: service_healthy
+{% else %}
+    # Reach the host's Postgres (nginx and Postgres stay on the host here)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+{% endif %}
+{% if vfllcms_nginx_containerized %}
+    # Reached by the nginx container as vfllcms-web:8000
+    networks:
+      - default
+      - proxy
+{% else %}
+    ports:
+      - "127.0.0.1:{{ vfllcms_port }}:8000"
+{% endif %}
+    volumes:
+      - "{{ vfllcms_data_dir }}:/data"
+{% if vfllcms_nginx_containerized %}
+
+networks:
+  proxy:
+    name: "{{ vfllcms_network }}"
+    external: true
+{% endif %}

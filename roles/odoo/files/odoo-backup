@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -e
+
+script=$(basename "$0")
+version="1.0.1"
+
+help() {
+  echo
+  echo "$script"
+  echo
+  echo 'Description: Backup Odoo database.'
+  echo "Syntax: $script [-p|-d|-o|-h|-t|-s|-V|help]"
+  echo 'Example: $script -p password -d odoo -o /tmp -h https://odoo.example.com' -t token -s
+  echo 'options:'
+  echo '  -p    Odoo master password. Defaults to \$ODOO_MASTER_PASSWORD env var.'
+  echo '  -d    Database name.'
+  echo '  -o    Output directory. Defaults to '\''/var/tmp'\''.'
+  echo '  -h    Odoo host. Defaults to '\''http://localhost:8069'\''.'
+  echo '  -t    Pass a bearer auth token.'
+  echo '  -s    Download SQL dump only.'
+  echo '  -v    Show $script version.'
+  echo "  help  Show $script manual."
+  echo
+}
+
+if [[ $1 == 'help' ]]; then
+    help
+    exit
+fi
+
+password=${ODOO_MASTER_PASSWORD:=odoo}
+database=odoo
+output=/var/tmp
+backup_format=zip
+odoo_host=http://localhost:8069
+
+while getopts ':p: :d: :o: :h: :t: :s :V' opt; do
+    case $opt in
+        p) password="$OPTARG";;
+        d) database="$OPTARG";;
+        o) output="$OPTARG";;
+        h) odoo_host="$OPTARG";;
+        t) token="$OPTARG";;
+        s) backup_format='dump';;
+        V) echo "$script version $version"
+        exit 0
+        ;;
+        \?) echo "Invalid option -$OPTARG" >&2
+        help
+        exit;;
+    esac
+done
+
+[[ "$odoo_host" == http* ]]  || { echo "Parameter -h|host must start with 'http/s'" ; exit 1; }
+
+odoo_host="${odoo_host%/}"
+output="${output%/}"
+
+mkdir -p $output
+
+if [[ -z "$file" ]];then
+    if [[ "$backup_format" == "zip" ]]; then
+        file="$database.zip"
+    fi
+    if [[ "$backup_format" == "dump" ]]; then
+        file="$database.sql"
+    fi
+fi
+
+filepath="${output}/${file}"
+
+echo "Backup database $database to $filepath ..."
+
+response=$(curl \
+    -H "Authorization: Bearer $token" \
+    -F "master_pwd=$password" \
+    -F "name=$database" \
+    -F "backup_format=$backup_format" \
+    -o "$filepath" \
+    "$odoo_host/web/database/backup")
+
+echo "$response" | grep "error" && exit 1
+
+filetype=$(file --mime-type -b "$filepath")
+if [[ "$filetype" == "text/html" ]]; then
+    grep error "$filepath"
+fi
+
+if [[ "$backup_format" == "zip" ]];then
+    unzip -q -t "$filepath"
+fi
+
+echo "The Odoo backup has finished: $filepath"

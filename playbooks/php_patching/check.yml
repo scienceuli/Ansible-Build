@@ -4,8 +4,9 @@
 # every running container with a php binary plus a native php on the host.
 #   uv run ansible-playbook -i inventories playbooks/php_patching/check.yml
 #   uv run ansible-playbook -i inventories playbooks/php_patching/check.yml -l hertz
-# Native distro packages (e.g. 8.1.2-1ubuntu2.x) may carry backported fixes
-# under an old upstream version - verify those with the package changelog.
+# Native distro packages carry backported fixes under an old upstream version
+# (e.g. 8.1.2-1ubuntu2.28): host PHP is compared by its package version with
+# php_fixed_distro_versions when its package line is listed there.
 - name: PHP security check
   hosts: all:!localhost
   gather_facts: false
@@ -19,9 +20,13 @@
       "8.3": 8.3.36
       "8.4": 8.4.27
       "8.5": 8.5.12
+    # Distro builds with the fixes, key = package version without the last
+    # revision number. Ubuntu: https://ubuntu.com/security/CVE-2026-109618
+    php_fixed_distro_versions:
+      "8.1.2-1ubuntu2": 8.1.2-1ubuntu2.28 # 22.04 jammy, USN-8948-1
   tasks:
     - name: Collect PHP versions (containers and host)
-      # One line per PHP: <where>|<image>|<version>
+      # One line per PHP: <where>|<image or package version>|<version>
       ansible.builtin.shell: |
         {% raw %}
         if command -v docker >/dev/null; then
@@ -32,7 +37,8 @@
           done
         fi
         if command -v php >/dev/null; then
-          echo "host|-|$(php -r 'echo PHP_VERSION;')"
+          b=$(php -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;')
+          echo "host|$(dpkg-query -W -f='${Version}' php$b-cli 2>/dev/null || echo -)|$(php -r 'echo PHP_VERSION;')"
         fi
         {% endraw %}
       register: php_check_versions
@@ -50,15 +56,21 @@
       vars:
         php_check_version: "{{ item.split('|')[2] | regex_replace('^(\\d+\\.\\d+\\.\\d+).*$', '\\1') }}"
         php_check_branch: "{{ php_check_version.split('.')[:2] | join('.') }}"
+        php_check_package: "{{ item.split('|')[1] }}"
+        php_check_package_line: "{{ php_check_package | regex_replace('\\.\\d+$', '') }}"
       when: >-
         item.split('|')[2] == 'no-access'
-        or php_check_version is version('8.2', '<')
-        or (php_check_branch in php_fixed_versions
-            and php_check_version is version(php_fixed_versions[php_check_branch], '<'))
+        or (item.startswith('host|') and php_check_package_line in php_fixed_distro_versions
+            and php_check_package is version(php_fixed_distro_versions[php_check_package_line], '<'))
+        or (not (item.startswith('host|') and php_check_package_line in php_fixed_distro_versions)
+            and (php_check_version is version('8.2', '<')
+                 or (php_check_branch in php_fixed_versions
+                     and php_check_version is version(php_fixed_versions[php_check_branch], '<'))))
 
     - name: Fail on vulnerable PHP
       ansible.builtin.fail:
         msg: >-
           Vulnerable or unchecked PHP (need {{ php_fixed_versions.values() | join(', ') }};
-          < 8.2 gets no upstream fix): {{ php_check_vulnerable }}
+          < 8.2 gets no upstream fix; distro builds: {{ php_fixed_distro_versions.values() | join(', ') }}):
+          {{ php_check_vulnerable }}
       when: php_check_vulnerable is defined

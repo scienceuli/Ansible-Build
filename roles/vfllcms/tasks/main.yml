@@ -1,0 +1,97 @@
+---
+# roles/vfllcms/tasks/main.yml
+
+- name: Ensure required variables are set
+  ansible.builtin.assert:
+    that:
+      - vfllcms_domain is defined
+      - vfllcms_secret_key is defined
+      - vfllcms_db_password is defined
+      - vfllcms_network != "" or not vfllcms_nginx_containerized
+    fail_msg: >
+      vfllcms_domain, vfllcms_secret_key and vfllcms_db_password must be set
+      (secrets via an ansible-vault-encrypted host_vars file); vfllcms_network
+      must also be set when vfllcms_nginx_containerized is true.
+
+- name: Install git
+  ansible.builtin.apt:
+    name: git
+    state: present
+    update_cache: true
+
+- name: Ensure compose directory exists
+  ansible.builtin.file:
+    path: "{{ vfllcms_compose_dir }}"
+    state: directory
+    mode: "0755"
+
+# The nginx container (hertz) or host nginx (bohr) reads static/ and
+# media/ from here, so 0755
+- name: Ensure data directory exists (writable by the container user)
+  ansible.builtin.file:
+    path: "{{ vfllcms_data_dir }}"
+    state: directory
+    owner: "{{ vfllcms_container_uid }}"
+    group: "{{ vfllcms_container_uid }}"
+    mode: "0755"
+
+- name: Ensure db data directory exists (containerized db only)
+  ansible.builtin.file:
+    path: "{{ vfllcms_db_data_dir }}"
+    state: directory
+    mode: "0755"
+  when: vfllcms_db_containerized
+
+- name: Deploy one-time database seed script (containerized db only)
+  ansible.builtin.copy:
+    src: seed-restore.sh
+    dest: "{{ vfllcms_compose_dir }}/seed-restore.sh"
+    mode: "0755"
+  when: vfllcms_db_containerized and vfllcms_db_seed_dump != ""
+
+- name: Fetch vfllcms source from git
+  ansible.builtin.git:
+    repo: "{{ vfllcms_git_repo }}"
+    dest: "{{ vfllcms_src_dir }}"
+    version: "{{ vfllcms_git_version }}"
+    key_file: "{{ vfllcms_git_key_file | default(omit) }}"
+    accept_hostkey: "{{ vfllcms_git_key_file is defined }}"
+  environment:
+    # private repo over https without credentials: fail instead of hanging on a prompt
+    GIT_TERMINAL_PROMPT: "0"
+  register: vfllcms_source_sync
+
+- name: Deploy env file
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ vfllcms_compose_dir }}/.env"
+    mode: "0600"          # Django secret key and DB credentials
+  register: vfllcms_env_file
+
+- name: Deploy docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ vfllcms_compose_dir }}/docker-compose.yml"
+    mode: "0600"          # contains the DB password
+  register: vfllcms_compose_file
+
+# Migrations and collectstatic run in the web container's entrypoint
+- name: Build and (re)start vfllcms via docker compose
+  community.docker.docker_compose_v2:
+    project_src: "{{ vfllcms_compose_dir }}"
+    state: present
+    build: "{{ 'always' if vfllcms_source_sync.changed else 'policy' }}"
+    recreate: "{{ 'always' if (vfllcms_source_sync.changed or vfllcms_env_file.changed or vfllcms_compose_file.changed) else 'auto' }}"
+
+# Opt-in: -e vfllcms_restore_dump=/path/on/control/machine.pgdump
+- name: Replace the database with a dump (containerized db only)
+  ansible.builtin.include_role:
+    name: compose_pg_restore
+  vars:
+    compose_pg_restore_dump: "{{ vfllcms_restore_dump }}"
+    compose_pg_restore_project_dir: "{{ vfllcms_compose_dir }}"
+    compose_pg_restore_db_container: "vfllcms-db"
+    compose_pg_restore_db_name: "{{ vfllcms_db_name }}"
+    compose_pg_restore_db_user: "{{ vfllcms_db_user }}"
+    compose_pg_restore_app_services: [web]
+  when: vfllcms_restore_dump | default('') != '' and vfllcms_db_containerized

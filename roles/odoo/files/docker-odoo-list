@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -e
+
+script=$(basename "$0")
+version="1.0.1"
+
+help() {
+    echo
+    echo "$script"
+    echo
+    echo 'Description: List all Odoo databases in Docker container.'
+    echo "Syntax: $script [-c|-V|help]"
+    echo 'Example: $script -c odoo01'
+    echo 'options:'
+    echo '  -c    Docker container. Defaults to '\''odoo'\''.'
+    echo "  -V    Show $script version."
+    echo "  help  Show $script manual."
+    echo
+}
+
+if [[ "$1" == 'help' ]]; then
+    help
+    exit
+fi
+
+container=odoo
+
+while getopts ':c: :V' opt; do
+    case $opt in
+        c) container="$OPTARG";;
+        V) echo "$script version $version"
+        exit 0
+        ;;
+        \?) echo "Invalid option -$OPTARG" >&2
+        help
+        exit;;
+    esac
+done
+
+docker exec "$container" /bin/bash -c "psql postgresql://\$PGUSER:\$PGPASSWORD@\$PGHOST/postgres -tAc \"SELECT datname FROM pg_database WHERE datistemplate = false AND datname NOT IN ('postgres', 'template0', 'template1');\""

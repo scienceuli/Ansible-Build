@@ -1,0 +1,5 @@
+---
+- name: Restart {{ role_name }} container
+  community.docker.docker_container:
+    name: "{{ fast_note_sync_hostname }}"
+    restart: true

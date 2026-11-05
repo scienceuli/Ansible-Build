@@ -33,6 +33,10 @@ eventmanager_gunicorn_workers: 3
 eventmanager_db_image: "postgres:16-alpine"
 eventmanager_db_name: "eventmanager"
 eventmanager_db_user: "eventmanager"
+# Replace the database with a dump on EVERY run that sets it - pass it with
+# -e only: -e eventmanager_restore_dump=/path/on/control/machine (pg_dump -Fc).
+# See roles/compose_pg_restore.
+# eventmanager_restore_dump: ""
 
 eventmanager_mjml_image: "liminspace/mjml-tcpserver:1.4"
 
@@ -66,6 +70,16 @@ eventmanager_invoice_ninja_api_key: ""
 
 # Any further env vars for eventmanager.container_settings
 eventmanager_extra_env: {}
+
+# Further host names the app answers to (ALLOWED_HOSTS, CSRF_TRUSTED_ORIGINS);
+# SITE_URL always uses eventmanager_domain.
+eventmanager_domain_aliases: []
+
+# Periodic management commands, run on the docker host via
+# `docker exec eventmanager-web python manage.py <command>` (replaces the old
+# server's django-crontab CRONJOBS), e.g.
+#   - { name: fetch_emails, command: fetch_emails, minute: "0", hour: "0" }
+eventmanager_cron_jobs: []
 
 # TLS is terminated by the nginx container; only used for SITE_URL.
 eventmanager_enable_ssl: true

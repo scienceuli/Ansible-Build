@@ -21,6 +21,9 @@
     labels:
       description: "{{ alloy_description }}"
     image: "{{ alloy_image }}"
+    # uname inside the container reports the container hostname; it becomes
+    # the nodename label (Host dropdown of dashboard 1860) instead of the ID
+    hostname: "{{ alloy_instance }}"
     restart_policy: unless-stopped
     # cAdvisor reads the cgroups of all containers
     privileged: "{{ alloy_cadvisor_enabled }}"

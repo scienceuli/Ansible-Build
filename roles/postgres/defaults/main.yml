@@ -12,3 +12,4 @@ postgres_ports: []
 postgres_wal_level: replica
 postgres_max_connections: 100
 postgres_scripts_dir: /usr/local/bin
+postgres_shm_size: "512m"

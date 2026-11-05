@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="{{ item.noupdate | default(1) }}">
+  {% for record in item.records -%}
+  <record id="{{ record.id }}" model="{{ record.model }}">
+    {% for field in (record.fields | dict2items) -%}
+    {% if field.value is mapping -%}
+    <field name="{{ field.key }}" {{ field.value.attribute }}="{{ field.value.value }}"/>
+    {% else -%}
+    <field name="{{ field.key }}">{{ field.value }}</field>
+    {% endif -%}
+    {% endfor -%}
+  </record>
+  {% endfor -%}
+</odoo>

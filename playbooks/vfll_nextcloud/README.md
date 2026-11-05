@@ -208,9 +208,6 @@ docker exec doc01 tail -f /var/log/onlyoffice/documentserver/converter/out.log
   `forbidden_filenames`) are renamed by `migrate.yml` on every run.
 - After an upgrade the app-store apps get newer versions that need another
   `occ upgrade`; the role does that (`Run pending occ upgrades`).
-- The old services are still installed on the host but stopped/disabled
-  (nginx, old `ONLYOFFICEDOCKER`) or idle (php8.1-fpm, MariaDB, Redis, native
-  Nextcloud in maintenance) - see MIGRATION_PLAN.md for their removal. Don't
-  start the host nginx: it would take ports 80/443 from `nginx01`.
-- Old, unused docker volumes from earlier setups: `compose_*`,
-  `docker-onlyoffice-nextcloud_*` - remove with the old services.
+- The native environment (nginx, PHP 8.1, MariaDB, Redis, `/var/www/nextcloud`,
+  old `ONLYOFFICEDOCKER`) was removed on 2026-11-02 - last state in restic
+  snapshots `a17afd00` (`pre-migration`) and `a6c798e8` (`native-final`).

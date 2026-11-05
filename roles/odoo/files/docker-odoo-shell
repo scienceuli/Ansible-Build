@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -e
+
+script=$(basename "$0")
+version="1.0.1"
+
+help() {
+    echo
+    echo "$script"
+    echo
+    echo 'Description: Run python code in Odoo container.'
+    echo "Syntax: $script [-c|-d|-p|-f|-V|help]"
+    echo 'Example: $script -d erp-dev -c odoo06 -p '\''print(env.user.name)'\''.'
+    echo 'options:'
+    echo '  -c    Docker container. Defaults to '\''odoo'\''.'
+    echo '  -d    Database name.'
+    echo '  -p    Python code as string.'
+    echo '  -f    Commit changes to database.'
+    echo "  -V    Show $script version."
+    echo "  help  Show $script manual."
+    echo
+}
+
+if [[ "$1" == 'help' ]]; then
+    help
+    exit
+fi
+
+force='false'
+container=odoo
+
+while getopts ':c: :d: :p: :f :V' opt; do
+    case $opt in
+        c) container="$OPTARG";;
+        d) database="$OPTARG";;
+        p) code="$OPTARG";;
+        f) force='true';;
+        V) echo "$script version $version"
+        exit 0
+        ;;
+        \?) echo "Invalid option -$OPTARG" >&2
+        help
+        exit;;
+    esac
+done
+
+[[ -z "$database" ]] && { echo 'Parameter -d|database is empty.' ; exit 1; }
+
+container_id=$(docker ps -f "name=${container}" -q | head -n1)
+[[ -z "$container_id" ]] && { echo "Container id for $container not found." ; exit 1; }
+
+code=$(echo "$code" | sed 's/"/\\"/g' | sed "s/'/\\'/g")
+
+if $force; then
+    code="${code};self.env.cr.commit()"
+fi
+
+if [[ -n $code ]]; then
+    echo "Execute code in container $container on database $database." >&2
+    docker exec $container_id /bin/bash -c "echo \"$code\" | odoo shell -d $database --db_host=\$PGHOST --db_user=\$PGUSER --db_password=\$PGPASSWORD --no-http"
+else
+    echo "Start odoo shell in container $container on database $database."
+    docker exec -it $container_id /bin/bash -c "odoo shell -d $database --db_host=\$PGHOST --db_user=\$PGUSER --db_password=\$PGPASSWORD --no-http"
+fi
+
+if $force; then
+    echo 'Changes to the database have been committed.' >&2
+fi

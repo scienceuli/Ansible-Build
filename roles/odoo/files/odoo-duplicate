@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -e
+
+
+# Get script name
+script=$(basename "$0")
+version="1.0.0"
+
+# Display Help
+help() {
+  echo
+  echo "$script"
+  echo
+  echo 'Description: Duplicate Odoo database.'
+  echo "Syntax: $script [-p|-d|-h|-n|-V|help]"
+  echo 'Example: $script -p secret -d odoo -h https://odoo.example.com' -n odoo2
+  echo 'options:'
+  echo '  -p    Odoo master password. Defaults to \$ODOO_MASTER_PASSWORD env var and '\''admin'\''.'
+  echo '  -d    Database name.'
+  echo '  -h    Odoo host. Defaults to '\''http://localhost:8069'\''.'
+  echo '  -n    New database name.'
+  echo '  -v    Show $script version.'
+  echo "  help  Show $script manual."
+  echo
+}
+
+# Show help and exit
+if [[ "$1" == 'help' ]]; then
+    help
+    exit
+fi
+
+# Process params
+while getopts ':p: :d: :h: :n: :V' opt; do
+    case $opt in
+        p) password="$OPTARG";;
+        d) database="$OPTARG";;
+        n) new_database="$OPTARG";;
+        h) odoo_host="$OPTARG";;
+        V) echo "$script version $version"
+        exit 0
+        ;;
+        \?) echo "Invalid option -$OPTARG" >&2
+        help
+        exit;;
+    esac
+done
+
+# Fallback to environment vars and default values
+: "${password:=${ODOO_MASTER_PASSWORD:=odoo}}"
+: "${odoo_host:=http://localhost:8069}"
+
+# Verify variables
+[[ -z "$database" ]] && { echo 'Parameter -d|database is empty.' ; exit 1; }
+[[ -z "$new_database" ]] && { echo 'Parameter -n|new database is empty.' ; exit 1; }
+[[ "$database" == "$new_database" ]] && { echo 'Parameter -d and -h cannot be the same' ; exit 1; }
+
+echo "Duplicating Odoo database $database to $new_database ..."
+
+# Request duplication with curl
+response=$(curl \
+    -F "master_pwd=${password}" \
+    -F "name=${database}" \
+    -F "new_name=${new_database}" \
+    "${odoo_host%/}/web/database/duplicate")
+
+echo "$response" | grep 'error' && exit 1
+
+echo "The duplication of Odoo database $database to $new_database has finished."

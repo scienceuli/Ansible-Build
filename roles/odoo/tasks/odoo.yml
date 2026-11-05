@@ -1,0 +1,86 @@
+---
+- name: Include docker volume role
+  ansible.builtin.include_role:
+    name: docker_volume
+  vars:
+    docker_volume_name: "{{ odoo_volume_name }}"
+  when: odoo_volume_name is defined
+
+- name: Ensure {{ role_name }} data dir exists
+  ansible.builtin.file:
+    path: "{{ odoo_data_dir }}/enterprise"
+    state: directory
+    owner: "{{ odoo_owner }}"
+    group: "{{ odoo_group }}"
+
+- name: Define {{ role_name }} volumes
+  ansible.builtin.set_fact:
+    odoo_volumes:
+      - "{{ odoo_volume_name }}:/var/lib/odoo"
+      - "{{ odoo_data_dir }}/addons:/mnt/addons"
+      - "{{ odoo_data_dir }}/enterprise:/mnt/enterprise"
+
+- name: Start {{ role_name }} container {{ odoo_hostname }}
+  community.docker.docker_container:
+    name: "{{ odoo_hostname }}"
+    labels:
+      description: "{{ odoo_description }}"
+    image: "{{ odoo_image }}"
+    command: "{{ odoo_official_command if odoo_image.startswith('odoo:') else omit }}"
+    restart_policy: unless-stopped
+    state: "{{ odoo_state }}"
+    env:
+      HOST: "{{ odoo_postgres_hostname }}"
+      USER: "{{ odoo_postgres_user }}"
+      PASSWORD: "{{ odoo_postgres_password }}"
+      POSTGRES_DB: "{{ postgres_db | default('postgres') }}"
+      PGHOST: "{{ odoo_postgres_hostname }}"
+      PGUSER: "{{ odoo_postgres_user }}"
+      PGPASSWORD: "{{ odoo_postgres_password }}"
+      TZ: "{{ odoo_timezone }}"
+      ADDONS_GIT_REPOS: "{{ odoo_addons_git_repos | default('') }}"
+      ODOO_ADDONS_PATH: /mnt/addons/,/mnt/enterprise
+      ODOO_ENTERPRISE_PATH: /mnt/enterprise
+      ADMIN_PASSWD: "{{ odoo_master_password }}"
+      DB_FILTER: "{{ odoo_dbfilter }}"
+      LIST_DB: "{{ odoo_list_db }}"
+      PROXY_MODE: "{{ odoo_proxy_mode }}"
+      LOG_LEVEL: "{{ odoo_log_level }}"
+      SERVER_WIDE_MODULES: "{{ odoo_server_wide_modules | default('') }}"
+      PYTHON_INSTALL: "{{ odoo_python_install | default('') }}"
+      WORKERS: "{{ odoo_workers | int }}"
+      LIMIT_REQUEST: "{{ odoo_conf_limit_request | int }}"
+      LIMIT_TIME_CPU: "{{ odoo_conf_limit_time_cpu | int }}"
+      LIMIT_TIME_REAL: "{{ odoo_conf_limit_time_real | int }}"
+    ports: "{{ odoo_ports | default([]) }}"
+    volumes: "{{ odoo_volumes }}"
+    networks:
+      - name: "{{ docker_network_name }}"
+    network_mode: bridge
+    etc_hosts: "{{ odoo_etc_hosts }}"
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: "{{ odoo_sysctls_disable_ipv6 }}"
+
+- name: Check {{ role_name }} database {{ odoo_init_database }} is initialized
+  ansible.builtin.command: >-
+    docker exec {{ odoo_postgres_hostname }} psql -U {{ odoo_postgres_user }} -d {{ odoo_init_database }} -tAc
+    "SELECT 1 FROM ir_module_module WHERE name = 'base' AND state = 'installed'"
+  register: odoo_init_check
+  failed_when: false
+  changed_when: false
+  when: odoo_init_database is defined and odoo_state == 'started'
+
+- name: Initialize {{ role_name }} database {{ odoo_init_database }}
+  ansible.builtin.command: >-
+    docker-odoo-init -c "^{{ odoo_hostname }}$" -d "{{ odoo_init_database }}"
+    -i "{{ odoo_init_modules }}" -l "{{ odoo_init_language }}"
+  when: odoo_init_check.stdout is defined and odoo_init_check.stdout | trim != '1'
+  register: odoo_init_result
+
+- name: Restart {{ role_name }} container after database init
+  ansible.builtin.command: docker restart {{ odoo_hostname }}
+  when: odoo_init_result is changed
+
+- name: Include {{ role_name }} data tasks
+  ansible.builtin.include_tasks: "{{ role_name }}_data.yml"
+  when: odoo_data_files is defined

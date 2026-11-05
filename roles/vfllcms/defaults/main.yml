@@ -1,0 +1,94 @@
+---
+# roles/vfllcms/defaults/main.yml
+#
+# VFLL Wagtail CMS (Django) as a docker compose stack: web (gunicorn) plus,
+# only where the host has no Postgres of its own (vfllcms_db_containerized),
+# its own Postgres container. Two topologies in use:
+#   bohr (production): nginx and Postgres stay on the host, un-dockerized -
+#     web just publishes a host port (vfllcms_port) for host nginx to proxy
+#     to, and talks to the host's Postgres over host.docker.internal.
+#   hertz (staging): nginx is already a container there (nginx_proxies),
+#     and there's no host Postgres (only MariaDB, for other apps) - web
+#     joins the shared docker network, and gets its own containerized,
+#     backup-seeded Postgres.
+
+# Required, set in host_vars (no sane default):
+#   vfllcms_domain         - public FQDN, e.g. vfll.de or staging.vfll.de
+#   vfllcms_secret_key     - Django SECRET_KEY (vault it)
+#   vfllcms_db_password    - Postgres password (vault it)
+#   vfllcms_network        - only when vfllcms_nginx_containerized: true
+#                             (the docker host's docker_network_name)
+
+vfllcms_git_repo: "https://github.com/scienceuli/vfllcms.git"
+vfllcms_git_version: "main"
+# The repo is private: use an ssh url plus a read-only GitHub deploy key, e.g.
+#   vfllcms_git_repo: "git@github.com:scienceuli/vfllcms.git"
+#   vfllcms_git_key_file: /root/.ssh/vfllcms_deploy_key
+
+vfllcms_compose_dir: "/opt/docker/vfllcms"
+vfllcms_src_dir: "{{ vfllcms_compose_dir }}/src"
+# Mounted at /data: static/, media/
+vfllcms_data_dir: "{{ vfllcms_compose_dir }}/data"
+vfllcms_db_data_dir: "{{ vfllcms_compose_dir }}/db-data"
+
+# Must match the `app` user created in the Dockerfile
+vfllcms_container_uid: 1000
+vfllcms_restart_policy: "unless-stopped"
+vfllcms_gunicorn_workers: 3
+
+# Database: host Postgres (bohr) by default. Set vfllcms_db_containerized:
+# true (hertz) to get a dedicated db: service instead - DATABASE_URL then
+# points at that container ("db"), not vfllcms_db_host.
+vfllcms_db_containerized: false
+vfllcms_db_image: "postgres:16-alpine"
+vfllcms_db_name: "vfllcms"
+vfllcms_db_user: "vfllcms"
+vfllcms_db_host: "host.docker.internal"
+vfllcms_db_port: 5432
+# One-time seed, containerized db only: absolute path on the TARGET HOST to
+# a pg_dump custom-format file. Only takes effect the very first time (the
+# official postgres image only runs docker-entrypoint-initdb.d scripts
+# against an empty data dir) - ignored on every later run. Leave empty for
+# a fresh, empty database.
+vfllcms_db_seed_dump: ""
+# Replace the (containerized) database with a dump on EVERY run that sets
+# it - pass it with -e only: -e vfllcms_restore_dump=/path/on/control/machine
+# (pg_dump -Fc). See roles/compose_pg_restore.
+# vfllcms_restore_dump: ""
+
+# nginx: host-managed (bohr, manual proxy_pass - not templated here) by
+# default. Set vfllcms_nginx_containerized: true (hertz) to join the shared
+# docker network instead of publishing a host port.
+vfllcms_nginx_containerized: false
+vfllcms_network: ""
+# Only used when vfllcms_nginx_containerized is false
+vfllcms_port: 8010
+
+vfllcms_debug: false
+
+# Mail: the file backend writes mails to {{ vfllcms_data_dir }}/sent_emails
+# instead of sending them - the safe default. Set
+# "django.core.mail.backends.smtp.EmailBackend" plus the SMTP vars to send.
+vfllcms_email_backend: "django.core.mail.backends.filebased.EmailBackend"
+vfllcms_email_host: ""
+vfllcms_email_port: 587
+vfllcms_email_use_tls: true
+vfllcms_email_host_user: ""
+vfllcms_email_host_password: ""
+
+# Already read from the environment by settings/base.py itself
+vfllcms_facebook_app_id: ""
+vfllcms_facebook_app_secret: ""
+vfllcms_openai_api_key: ""
+
+# Optional integrations, empty = disabled (container_settings.py defaults)
+vfllcms_show_jubilee: false
+vfllcms_admission_regulations: ""
+vfllcms_token_url: ""
+vfllcms_member_admin_url: ""
+vfllcms_member_admin_user: ""
+vfllcms_member_admin_secret: ""
+vfllcms_google_credentials: "{}"
+
+# Any further env vars for rocketman.settings.container_settings
+vfllcms_extra_env: {}

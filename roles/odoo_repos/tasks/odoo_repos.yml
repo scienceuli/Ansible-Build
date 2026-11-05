@@ -1,0 +1,210 @@
+---
+- name: Get Odoo version from revision
+  ansible.builtin.set_fact:
+    odoo_version: "{{ odoo_revision | regex_search('^[0-9][0-9]\\.[0-9]') }}"
+
+- name: Show Odoo version
+  ansible.builtin.debug:
+    msg: "Odoo version: {{ odoo_version }}"
+
+- name: Ensure {{ role_name }} dir exists
+  ansible.builtin.file:
+    path: "{{ odoo_data_dir }}/{{ item.path }}"
+    state: directory
+    owner: "{{ odoo_owner }}"
+    group: "{{ odoo_group }}"
+  loop: "{{ odoo_repos }}"
+
+- name: Pull repo branch with ssh
+  ansible.builtin.shell: |
+    set -e
+    repo_path="{{ odoo_data_dir }}/{{ item.path }}"
+    branch="{{ item.branch | default(odoo_version) }}"
+
+    if [ -d "$repo_path/.git" ]; then
+      current_url=$(git -C "$repo_path" config --get remote.origin.url || echo "")
+      if [ "$current_url" != "{{ item.url }}" ]; then
+        rm -rf "$repo_path"
+        git init "$repo_path"
+        git -C "$repo_path" remote add origin "{{ item.url }}"
+      fi
+    else
+      git init "$repo_path"
+      git -C "$repo_path" remote add origin "{{ item.url }}"
+    fi
+
+    git -C "$repo_path" config core.sshCommand "ssh -i '{{ odoo_repo_key_file }}' -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
+    git -C "$repo_path" fetch --depth=1 origin "$branch"
+    git -C "$repo_path" checkout -f FETCH_HEAD
+  when:
+    - item.url is regex('^git@') and odoo_repo_key_file is defined
+    - item.sparse_dirs is not defined
+    - item.commit is not defined
+  loop: "{{ odoo_repos }}"
+  notify: Restart odoo container
+
+- name: Pull repo and checkout commit with ssh
+  ansible.builtin.shell: |
+    set -e
+    repo_path="{{ odoo_data_dir }}/{{ item.path }}"
+
+    if [ -d "$repo_path/.git" ]; then
+      current_url=$(git -C "$repo_path" config --get remote.origin.url || echo "")
+      if [ "$current_url" != "{{ item.url }}" ]; then
+        rm -rf "$repo_path"
+        git init "$repo_path"
+        git -C "$repo_path" remote add origin "{{ item.url }}"
+      fi
+    else
+      git init "$repo_path"
+      git -C "$repo_path" remote add origin "{{ item.url }}"
+    fi
+
+    git -C "$repo_path" config core.sshCommand "ssh -i '{{ odoo_repo_key_file }}' -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
+    git -C "$repo_path" fetch --depth=1 origin "{{ item.commit }}"
+    git -C "$repo_path" checkout -f FETCH_HEAD
+  when:
+    - item.url is regex('^git@') and odoo_repo_key_file is defined
+    - item.sparse_dirs is not defined
+    - item.commit is defined
+  loop: "{{ odoo_repos }}"
+  notify: Restart odoo container
+
+- name: Shallow ssh clone with sparse checkout
+  ansible.builtin.shell: |
+    set -e
+    if [ -d "{{ odoo_data_dir }}/{{ item.path }}/.git" ]; then
+      cd "{{ odoo_data_dir }}/{{ item.path }}"
+      current_url=$(git config --get remote.origin.url || echo "")
+      if [ "$current_url" != "{{ item.url }}" ]; then
+        cd ..
+        rm -rf "{{ item.path }}"
+        git init "{{ item.path }}"
+        cd "{{ item.path }}"
+        git config core.sshCommand "ssh -i '{{ odoo_repo_key_file }}' -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
+        git config core.sparseCheckout true
+        echo "{{ item.sparse_dirs | join('\n') }}" > .git/info/sparse-checkout
+        git remote add origin "{{ item.url }}"
+      else
+        git config core.sshCommand "ssh -i '{{ odoo_repo_key_file }}' -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
+      fi
+      {% if item.branch is defined %}
+      git fetch --depth=1 origin "{{ item.branch }}"
+      {% elif item.commit is defined %}
+      git fetch --depth=1 origin "{{ item.commit }}"
+      {% else %}
+      git fetch --depth=1 origin "{{ odoo_version }}"
+      {% endif %}
+      git checkout -f FETCH_HEAD
+    else
+      git init "{{ odoo_data_dir }}/{{ item.path }}"
+      cd "{{ odoo_data_dir }}/{{ item.path }}"
+      git config core.sshCommand "ssh -i '{{ odoo_repo_key_file }}' -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
+      git config core.sparseCheckout true
+      echo "{{ item.sparse_dirs | join('\n') }}" > .git/info/sparse-checkout
+      git remote add origin "{{ item.url }}"
+      {% if item.branch is defined %}
+      git fetch --depth=1 origin "{{ item.branch }}"
+      {% elif item.commit is defined %}
+      git fetch --depth=1 origin "{{ item.commit }}"
+      {% else %}
+      git fetch --depth=1 origin "{{ odoo_version }}"
+      {% endif %}
+      git checkout FETCH_HEAD
+    fi
+  when:
+    - item.url is regex('^git@')
+    - item.sparse_dirs is defined
+    - odoo_repo_key_file is defined
+  loop: "{{ odoo_repos }}"
+  notify: Restart odoo container
+
+- name: Pull repo branch with http
+  ansible.builtin.shell: |
+    set -e
+    repo_path="{{ odoo_data_dir }}/{{ item.path }}"
+    branch="{{ item.branch | default(odoo_version) }}"
+
+    if [ -d "$repo_path/.git" ]; then
+      current_url=$(git -C "$repo_path" config --get remote.origin.url || echo "")
+      if [ "$current_url" != "{{ item.url }}" ]; then
+        rm -rf "$repo_path"
+        git init "$repo_path"
+        git -C "$repo_path" remote add origin "{{ item.url }}"
+      fi
+    else
+      git init "$repo_path"
+      git -C "$repo_path" remote add origin "{{ item.url }}"
+    fi
+
+    git -C "$repo_path" fetch --depth=1 origin "$branch"
+    git -C "$repo_path" checkout -f FETCH_HEAD
+  when:
+    - item.url is regex('https://')
+    - item.sparse_dirs is not defined
+    - item.commit is not defined
+  loop: "{{ odoo_repos }}"
+  notify: Restart odoo container
+
+- name: Pull repo and checkout commit with http
+  ansible.builtin.shell: |
+    set -e
+    repo_path="{{ odoo_data_dir }}/{{ item.path }}"
+
+    if [ -d "$repo_path/.git" ]; then
+      current_url=$(git -C "$repo_path" config --get remote.origin.url || echo "")
+      if [ "$current_url" != "{{ item.url }}" ]; then
+        rm -rf "$repo_path"
+        git init "$repo_path"
+        git -C "$repo_path" remote add origin "{{ item.url }}"
+      fi
+    else
+      git init "$repo_path"
+      git -C "$repo_path" remote add origin "{{ item.url }}"
+    fi
+
+    git -C "$repo_path" fetch --depth=1 origin "{{ item.commit }}"
+    git -C "$repo_path" checkout -f FETCH_HEAD
+  when:
+    - item.url is regex('https://')
+    - item.sparse_dirs is not defined
+    - item.commit is defined
+  loop: "{{ odoo_repos }}"
+  notify: Restart odoo container
+
+- name: Shallow http clone with sparse checkout
+  ansible.builtin.shell: |
+    set -e
+    repo_path="{{ odoo_data_dir }}/{{ item.path }}"
+    if [ -d "$repo_path/.git" ]; then
+      current_url=$(git -C "$repo_path" config --get remote.origin.url || echo "")
+      if [ "$current_url" != "{{ item.url }}" ]; then
+        rm -rf "$repo_path"
+        git init "$repo_path"
+        git -C "$repo_path" config core.sparseCheckout true
+        echo "{{ item.sparse_dirs | join('\n') }}" > "$repo_path/.git/info/sparse-checkout"
+        git -C "$repo_path" remote add origin "{{ item.url }}"
+      fi
+      git -C "$repo_path" fetch --depth=1 origin "{{ item.branch }}"
+      git -C "$repo_path" checkout -f FETCH_HEAD
+    else
+      git init "$repo_path"
+      git -C "$repo_path" config core.sparseCheckout true
+      echo "{{ item.sparse_dirs | join('\n') }}" > "$repo_path/.git/info/sparse-checkout"
+      git -C "$repo_path" remote add origin "{{ item.url }}"
+      git -C "$repo_path" fetch --depth=1 origin "{{ item.branch }}"
+      git -C "$repo_path" checkout FETCH_HEAD
+    fi
+  when:
+    - item.url is regex('https://')
+    - item.sparse_dirs is defined
+  loop: "{{ odoo_repos }}"
+  notify: Restart odoo container
+
+- name: Add repo to git config
+  community.general.git_config:
+    name: safe.directory
+    scope: global
+    add_mode: add
+    value: "{{ odoo_data_dir }}/{{ item.path }}"
+  loop: "{{ odoo_repos }}"

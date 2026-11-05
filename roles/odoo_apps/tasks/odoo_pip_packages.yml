@@ -1,0 +1,10 @@
+---
+- name: Get installed python packages
+  ansible.builtin.command: docker exec {{ odoo_hostname }} pip3 freeze
+  register: result
+  changed_when: false
+
+- name: Install missing pip packages
+  ansible.builtin.command: docker exec {{ odoo_hostname }} pip3 install {{ item.name }}
+  loop: "{{ odoo_pip_packages }}"
+  notify: Restart odoo container

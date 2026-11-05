@@ -1,0 +1,71 @@
+---
+- name: Ensure required variables are set
+  ansible.builtin.assert:
+    that:
+      - compose_pg_restore_dump is defined
+      - compose_pg_restore_project_dir is defined
+      - compose_pg_restore_db_container is defined
+      - compose_pg_restore_db_name is defined
+      - compose_pg_restore_db_user is defined
+      - compose_pg_restore_app_services | length > 0
+    fail_msg: See roles/compose_pg_restore/defaults/main.yml for the required variables.
+
+- name: Check the dump on the control machine
+  ansible.builtin.stat:
+    path: "{{ compose_pg_restore_dump }}"
+  delegate_to: localhost
+  vars:
+    ansible_become: false   # inventory sets ansible_become, which beats `become:`
+  register: compose_pg_restore_dump_stat
+
+- name: Fail if the dump is missing
+  ansible.builtin.assert:
+    that: compose_pg_restore_dump_stat.stat.exists and compose_pg_restore_dump_stat.stat.isreg
+    fail_msg: "Dump {{ compose_pg_restore_dump }} not found on the control machine."
+
+- name: Copy the dump to the target host
+  ansible.builtin.copy:
+    src: "{{ compose_pg_restore_dump }}"
+    dest: "{{ compose_pg_restore_project_dir }}/restore.pgdump"
+    mode: "0600"          # production data
+
+- name: Restore the dump, then remove it again
+  block:
+    - name: Stop the app services while the database is replaced
+      ansible.builtin.command:
+        cmd: docker compose stop {{ compose_pg_restore_app_services | join(' ') }}
+        chdir: "{{ compose_pg_restore_project_dir }}"
+      changed_when: true
+
+    - name: Drop and recreate database {{ compose_pg_restore_db_name }}
+      ansible.builtin.command: >-
+        docker exec {{ compose_pg_restore_db_container }}
+        sh -c 'dropdb -U "$0" --maintenance-db=postgres --if-exists --force "$1"
+        && createdb -U "$0" --maintenance-db=postgres -O "$0" "$1"'
+        {{ compose_pg_restore_db_user | quote }} {{ compose_pg_restore_db_name | quote }}
+      changed_when: true
+
+    # Single transaction: either the whole dump applies or nothing does.
+    # --no-owner/--no-privileges: roles of the source server don't exist here.
+    - name: Restore the dump into {{ compose_pg_restore_db_name }}
+      ansible.builtin.shell: >-
+        docker exec -i {{ compose_pg_restore_db_container }}
+        pg_restore --no-owner --no-privileges --single-transaction --exit-on-error
+        -U {{ compose_pg_restore_db_user | quote }} -d {{ compose_pg_restore_db_name | quote }}
+        < {{ (compose_pg_restore_project_dir ~ '/restore.pgdump') | quote }}
+      changed_when: true
+
+    # Migrations run in the web container's entrypoint on start. Not in
+    # `always`: after a failed restore the database is empty, and starting
+    # the app would silently migrate it into an empty site.
+    - name: Start the app services again
+      ansible.builtin.command:
+        cmd: docker compose up -d {{ compose_pg_restore_app_services | join(' ') }}
+        chdir: "{{ compose_pg_restore_project_dir }}"
+      changed_when: true
+
+  always:
+    - name: Remove the dump from the target host
+      ansible.builtin.file:
+        path: "{{ compose_pg_restore_project_dir }}/restore.pgdump"
+        state: absent

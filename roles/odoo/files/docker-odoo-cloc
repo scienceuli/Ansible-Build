@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -e
+
+script=$(basename "$0")
+version="1.0.1"
+
+help() {
+    echo
+    echo "$script"
+    echo
+    echo 'Description: Count lines of code for Odoo database.'
+    echo "Syntax: $script [-c|-d|-s|-V|help]"
+    echo 'Example: $script -c odoo08 -d shop'
+    echo 'options:'
+    echo '  -c    Docker database container. Defaults to '\''odoo'\''.'
+    echo '  -d    Database name. Defaults to '\''odoo'\''.'
+    echo '  -s    Short output. List module names only.'
+    echo "  -V    Show $script version."
+    echo "  help  Show $script manual."
+    echo
+}
+
+if [[ "$1" == 'help' ]]; then
+  help
+  exit
+fi
+
+container=odoo
+short_mode=false
+
+while getopts ':c: :d: :s :V' opt; do
+    case $opt in
+        c) container="$OPTARG" ;;
+        d) database="$OPTARG" ;;
+        s) short_mode=true ;;
+        V) echo "$script version $version"
+        exit 0
+        ;;
+        \?) echo "Invalid option -$OPTARG" >&2
+        help
+        exit;;
+    esac
+done
+
+[[ -z "$database" ]] && { echo 'Parameter -d|database is empty.' ; exit 1; }
+
+if [[ "$short_mode" == true ]]; then
+    docker exec -i "$container" /bin/bash -c "
+unset ODOO_ADDONS_PATH
+unset ADDONS_PATH
+odoo cloc -d $database --db_host=\$PGHOST --db_user=\$PGUSER --db_password=\$PGPASSWORD --stop-after-init --no-http
+" 2>/dev/null | awk '/^---/ { sep++; next } sep == 1 && NF && $1 != "odoo/studio" { print $1 }'
+else
+    docker exec -i "$container" /bin/bash -c "
+unset ODOO_ADDONS_PATH
+unset ADDONS_PATH
+odoo cloc -d $database --db_host=\$PGHOST --db_user=\$PGUSER --db_password=\$PGPASSWORD --stop-after-init --no-http
+"
+fi

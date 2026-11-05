@@ -27,7 +27,7 @@ Scan of all hosts on 2026-10-21 (`check.yml`):
 |---|---|---|---|---|
 | hertz | `nextcloud01` | `nextcloud:35-apache` | 8.5.11 | new image build → `vfll_nextcloud/migrate.yml` |
 | hertz | `moodle01` | `erseco/alpine-moodle:v5.3.0` | 8.4.21 (Alpine 3.23 package) | new image build → `moodle.yml` |
-| hertz | native `php8.1-fpm` | Ubuntu package 8.1.2-1ubuntu2.11 | 8.1 | **stopped + disabled 2026-10-21** (old native Nextcloud, retired 2026-10-16); remove with the cleanup of the old instance |
+| hertz | native `php8.1-fpm`, cli, cgi | Ubuntu package 8.1.2-1ubuntu2.11 | 8.1 | fpm stopped 2026-10-21, packages updated to `8.1.2-1ubuntu2.28` (USN-8948-1) on 2026-10-22, **removed 2026-11-02** with the native Nextcloud environment. The host also had **292 pending security updates** (openssh, openssl, libc6, Docker 24 → 29) - procedure: [UPDATE.md](../../inventories/host_vars/hertz/UPDATE.md) |
 | dirac | `nextcloud-app` | `nextcloud:31-apache` | 8.3.30 | Nextcloud 31 is EOL, its image isn't rebuilt any more → **upgrade to 32** (role default now `32-apache`) |
 | gauss | `wordpress` | `vfllwp_wordpress` (built 2025-09 from `wordpress:latest`) | 8.3.25 | not managed here → reinstall, see [../vfll_wordpress/README.md](../vfll_wordpress/README.md) |
 
@@ -116,6 +116,11 @@ access fails with `no-access` instead of passing silently.
   `ansible_become` would beat the `become` keyword) - membership in the
   `docker` group is enough. bohr, curie and euler have no sudo password in the
   inventory.
-- Native distro packages carry backported fixes under an old upstream version
-  (e.g. `8.1.2-1ubuntu2.x`) - the check reports them; verify with the package
-  changelog (`apt changelog php8.1-fpm`).
+- Native distro packages carry backported fixes under an old upstream version.
+  Host PHP is compared by its package version (`dpkg-query … php8.1-cli`)
+  with `php_fixed_distro_versions` (key: package version without the last
+  revision, e.g. `8.1.2-1ubuntu2` → fixed in `8.1.2-1ubuntu2.28`, USN-8948-1).
+  Lines not listed there fall back to the upstream comparison - add the fixed
+  build from the distro's CVE tracker
+  (<https://ubuntu.com/security/CVE-2026-109618>,
+  <https://security-tracker.debian.org/tracker/CVE-2026-109618>).

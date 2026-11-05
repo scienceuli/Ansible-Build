@@ -1,0 +1,55 @@
+---
+- name: Include docker volume role
+  ansible.builtin.include_role:
+    name: docker_volume
+  vars:
+    docker_volume_name: "{{ item.hostname }}"
+  when: item.hostname is defined
+  loop: "{{ odoo_configmap }}"
+
+- name: Ensure {{ role_name }} data dir exists
+  ansible.builtin.file:
+    path: "{{ odoo_data_dir }}/enterprise"
+    state: directory
+    owner: "{{ odoo_owner }}"
+    group: "{{ odoo_group }}"
+
+- name: Start {{ role_name }} container {{ odoo_hostname }}
+  community.docker.docker_container:
+    name: "{{ item.hostname }}"
+    labels:
+      description: "{{ odoo_description }}"
+    image: "{{ odoo_image }}"
+    restart_policy: unless-stopped
+    env:
+      HOST: "{{ odoo_postgres_hostname }}"
+      USER: "{{ odoo_postgres_user }}"
+      PASSWORD: "{{ odoo_postgres_password }}"
+      PGHOST: "{{ odoo_postgres_hostname }}"
+      PGUSER: "{{ odoo_postgres_user }}"
+      PGPASSWORD: "{{ odoo_postgres_password }}"
+      TZ: "{{ odoo_timezone }}"
+      ADDONS_GIT_REPOS: "{{ odoo_addons_git_repos | default('') }}"
+      ODOO_ADDONS_PATH: /mnt/addons/,/mnt/enterprise
+      ADMIN_PASSWD: "{{ odoo_master_password }}"
+      DB_FILTER: "{{ item.dbfilter | default(odoo_dbfilter) }}"
+      LIST_DB: "{{ odoo_list_db }}"
+      PROXY_MODE: "{{ odoo_proxy_mode }}"
+      PYTHON_INSTALL: "{{ odoo_python_install | default('') }}"
+      WORKERS: "{{ odoo_workers | int }}"
+      LIMIT_REQUEST: "{{ odoo_conf_limit_request | int }}"
+      LIMIT_TIME_CPU: "{{ odoo_conf_limit_time_cpu | int }}"
+      LIMIT_TIME_REAL: "{{ odoo_conf_limit_time_real | int }}"
+    volumes:
+      - "{{ item.hostname }}:/var/lib/odoo"
+      - "{{ odoo_data_dir }}/addons:/mnt/addons"
+      - "{{ odoo_data_dir }}/enterprise:/mnt/enterprise"
+    ports: "{{ item.ports | default(odoo_ports)}}"
+    networks:
+      - name: "{{ docker_network_name }}"
+    network_mode: bridge
+    etc_hosts: "{{ odoo_etc_hosts }}"
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: "{{ odoo_sysctls_disable_ipv6 }}"
+  loop: "{{ odoo_configmap }}"
+  when: configmap_filter is not defined or (configmap_filter is defined and item.hostname == configmap_filter)
