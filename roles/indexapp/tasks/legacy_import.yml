@@ -1,0 +1,82 @@
+---
+# Import of the legacy app (PLAN.md step 5, `flask migrate-legacy`).
+#
+# Prerequisites (see playbooks/indexapp/HOW_TO_DEPLOY.md):
+#   - {{ indexapp_legacy_dir }}/uploads and /results on this host (rsync from the old server)
+#   - indexapp_legacy_dump: pg_dump -Fc of the old database on the control machine
+#
+# REPLACES all users, workflows and files of the new app (--reset), so it can be
+# repeated for rehearsals. The legacy files are in the data dir (/data/_legacy in the
+# container) and get hard-linked into place, then the staging folder is removed.
+
+- name: Check that the legacy files are on the host
+  ansible.builtin.stat:
+    path: "{{ indexapp_legacy_dir }}/{{ item }}"
+  register: indexapp_legacy_dirs
+  loop: [uploads, results]
+  failed_when: not indexapp_legacy_dirs.stat.isdir | default(false)
+
+# hard links need the container user to own the files (fs.protected_hardlinks)
+- name: Hand the legacy files to the container user
+  ansible.builtin.file:
+    path: "{{ indexapp_legacy_dir }}"
+    owner: "{{ indexapp_container_uid }}"
+    group: "{{ indexapp_container_uid }}"
+    recurse: true
+
+- name: Copy the legacy dump to the host
+  ansible.builtin.copy:
+    src: "{{ indexapp_legacy_dump }}"
+    dest: "{{ indexapp_compose_dir }}/legacy.dump"
+    mode: "0600"          # user data + password hashes
+
+- name: Recreate the legacy database in the db container
+  ansible.builtin.command:
+    cmd: docker exec indexapp-db psql -U {{ indexapp_db_user }} -d {{ indexapp_db_name }} -c "{{ item }}"
+  loop:
+    - DROP DATABASE IF EXISTS index_legacy
+    - CREATE DATABASE index_legacy
+  changed_when: true
+
+# "schema public already exists" is the one expected error of a restore into a fresh DB
+- name: Restore the legacy dump
+  ansible.builtin.shell:
+    cmd: >-
+      docker exec -i indexapp-db pg_restore --no-owner --no-privileges
+      -U {{ indexapp_db_user }} -d index_legacy < {{ indexapp_compose_dir }}/legacy.dump
+  register: indexapp_restore
+  failed_when: >-
+    indexapp_restore.rc != 0 and
+    'errors ignored on restore: 1' not in indexapp_restore.stderr
+  changed_when: true
+
+- name: Import (resets the new app's data first)
+  ansible.builtin.command:
+    cmd: >-
+      docker exec indexapp-worker flask migrate-legacy --legacy-db-name index_legacy
+      --uploads /data/_legacy/uploads --results /data/_legacy/results --hardlink
+      --reset --yes --report /tmp/migration-report.json
+  register: indexapp_import
+  changed_when: true
+
+- name: Show import summary
+  ansible.builtin.debug:
+    msg: "{{ indexapp_import.stdout_lines }}"
+
+- name: Keep the import report next to the compose file
+  ansible.builtin.command:
+    cmd: docker cp indexapp-worker:/tmp/migration-report.json {{ indexapp_compose_dir }}/migration-report.json
+  changed_when: true
+
+- name: Remove the dump copy from the host
+  ansible.builtin.file:
+    path: "{{ indexapp_compose_dir }}/legacy.dump"
+    state: absent
+
+# the imported files are hard links, so they stay; only the staging names go (and the
+# folder isn't backed up twice by restic)
+- name: Remove the legacy staging folder
+  ansible.builtin.file:
+    path: "{{ indexapp_legacy_dir }}"
+    state: absent
+  when: not indexapp_legacy_keep | bool

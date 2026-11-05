@@ -1,0 +1,133 @@
+---
+# roles/indexapp/tasks/main.yml
+
+- name: Ensure required variables are set
+  ansible.builtin.assert:
+    that:
+      - indexapp_domain is defined
+      - indexapp_network is defined
+      - indexapp_secret_key is defined
+      - indexapp_db_password is defined
+    fail_msg: >
+      indexapp_domain, indexapp_network, indexapp_secret_key and indexapp_db_password
+      must be set (secrets via an ansible-vault-encrypted host_vars file).
+
+- name: Install git
+  ansible.builtin.apt:
+    name: git
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Ensure compose directory exists
+  ansible.builtin.file:
+    path: "{{ indexapp_compose_dir }}"
+    state: directory
+    mode: "0755"
+
+# The nginx container reads downloads from here (read-only bind mount), so 0755
+- name: Ensure data directory exists (writable by the container user)
+  ansible.builtin.file:
+    path: "{{ indexapp_data_dir }}"
+    state: directory
+    owner: "{{ indexapp_container_uid }}"
+    group: "{{ indexapp_container_uid }}"
+    mode: "0755"
+
+# --- deploy key for the private GitHub repo ------------------------------------------
+- name: Create read-only deploy key for the GitHub repo
+  ansible.builtin.command:
+    cmd: ssh-keygen -t ed25519 -N "" -C "indexapp deploy key {{ inventory_hostname }}" -f {{ indexapp_deploy_key_path }}
+    creates: "{{ indexapp_deploy_key_path }}"
+  tags: deploy_key
+
+- name: Read deploy public key
+  ansible.builtin.slurp:
+    src: "{{ indexapp_deploy_key_path }}.pub"
+  register: indexapp_deploy_pubkey
+  tags: deploy_key
+
+- name: Show deploy public key (add it on GitHub as read-only deploy key)
+  ansible.builtin.debug:
+    msg: "{{ indexapp_deploy_pubkey.content | b64decode | trim }}"
+  tags: deploy_key
+
+- name: Pin github.com host key
+  ansible.builtin.known_hosts:
+    name: github.com
+    key: "{{ indexapp_github_host_key }}"
+    path: /root/.ssh/known_hosts
+  tags: deploy_key
+
+# --- source, config, containers -------------------------------------------------------
+- name: Fetch index app source from git
+  ansible.builtin.git:
+    repo: "{{ indexapp_git_repo }}"
+    dest: "{{ indexapp_src_dir }}"
+    version: "{{ indexapp_git_version }}"
+    key_file: "{{ indexapp_deploy_key_path }}"
+    accept_hostkey: false
+  register: indexapp_source_sync
+
+- name: Deploy env file
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ indexapp_compose_dir }}/.env"
+    mode: "0600"          # SECRET_KEY, DB and SMTP credentials
+  register: indexapp_env_file
+
+- name: Deploy docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ indexapp_compose_dir }}/docker-compose.yml"
+    mode: "0600"          # contains the DB password
+  register: indexapp_compose_file
+
+# Migrations run in the web container's entrypoint; the image build runs `flask selftest`
+- name: Build and (re)start the index app via docker compose
+  community.docker.docker_compose_v2:
+    project_src: "{{ indexapp_compose_dir }}"
+    state: present
+    build: "{{ 'always' if indexapp_source_sync.changed else 'policy' }}"
+    recreate: "{{ 'always' if (indexapp_source_sync.changed or indexapp_env_file.changed or indexapp_compose_file.changed) else 'auto' }}"
+
+- name: Wait until the app is healthy (DB + Redis)
+  ansible.builtin.command:
+    cmd: >-
+      docker exec indexapp-web python -c "import urllib.request;
+      urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=5)"
+  register: indexapp_health
+  retries: 30
+  delay: 3
+  until: indexapp_health.rc == 0
+  changed_when: false
+
+- name: Self-test of the indexing pipeline (LuaLaTeX, fonts, makeindex) in the worker
+  ansible.builtin.command:
+    cmd: docker exec indexapp-worker flask selftest
+  register: indexapp_selftest
+  changed_when: false
+
+- name: Show self-test result
+  ansible.builtin.debug:
+    msg: "{{ indexapp_selftest.stdout_lines | last }}"
+
+# Opt-in: -e indexapp_admin_email=... -e indexapp_admin_password=...
+- name: Create or promote admin
+  ansible.builtin.command:
+    cmd: docker exec indexapp-web flask create-admin {{ indexapp_admin_email }} --password {{ indexapp_admin_password }}
+  no_log: true
+  when: indexapp_admin_email | default('') != '' and indexapp_admin_password | default('') != ''
+
+# Output goes to syslog: journalctl -t indexapp-cleanup
+- name: Daily housekeeping (old invitations, orphaned folders are listed)
+  ansible.builtin.cron:
+    name: "indexapp cleanup"
+    minute: "17"
+    hour: "4"
+    job: docker exec indexapp-web flask cleanup 2>&1 | logger -t indexapp-cleanup
+
+# Opt-in, see defaults: -e indexapp_legacy_import=true -e indexapp_legacy_dump=...
+- name: Import the legacy app (users, workflows, files)
+  ansible.builtin.include_tasks: legacy_import.yml
+  when: indexapp_legacy_import | bool

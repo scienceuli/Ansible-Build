@@ -1,0 +1,71 @@
+---
+# roles/indexapp/defaults/main.yml
+#
+# Index App (Flask, github.com/scienceuli/indexapp) as docker compose stack:
+# web (migrations + gunicorn), worker (RQ: PDF annotations -> index, LuaLaTeX),
+# Postgres 17 and Redis. The nginx container of the docker host (roles
+# nginx/certbot, nginx_proxies in the host's vars) terminates TLS, proxies to
+# indexapp-web over the shared docker network and serves downloads from the
+# bind-mounted data dir via X-Accel-Redirect (internal location).
+
+# Required, set in host_vars (no sane default):
+#   indexapp_domain       - public FQDN, e.g. indexapp.sam-projekte.de
+#   indexapp_network      - docker network shared with the nginx container
+#   indexapp_secret_key   - Flask SECRET_KEY (vault it)
+#   indexapp_db_password  - Postgres password (vault it)
+
+# private repo: cloned with a read-only deploy key (indexapp_deploy_key_path).
+# First run: `-t deploy_key` prints the public key -> add it on GitHub
+# (repo Settings -> Deploy keys, read-only), then run the whole playbook.
+indexapp_git_repo: "git@github.com:scienceuli/indexapp.git"
+indexapp_git_version: "main"
+indexapp_deploy_key_path: "/root/.ssh/indexapp_deploy_key"
+# github.com's published host key (docs.github.com/en/authentication/
+# keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints)
+indexapp_github_host_key: >-
+  github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+
+indexapp_compose_dir: "/opt/docker/indexapp"
+indexapp_src_dir: "{{ indexapp_compose_dir }}/src"
+# uploads + results (DATA_DIR/<user>/<workflow>/); nginx reads it read-only
+indexapp_data_dir: "{{ indexapp_compose_dir }}/data"
+indexapp_db_data_dir: "{{ indexapp_compose_dir }}/db-data"
+indexapp_redis_data_dir: "{{ indexapp_compose_dir }}/redis-data"
+# legacy import (tasks/legacy_import.yml): uploads/ and results/ of the old app.
+# Inside the data dir on purpose: the import hard-links the files instead of copying
+# them (one 10 GiB copy instead of two on a 38 GB disk); removed after the import.
+indexapp_legacy_dir: "{{ indexapp_data_dir }}/_legacy"
+indexapp_legacy_keep: false
+
+# must match the `app` user in the Dockerfile
+indexapp_container_uid: 1000
+indexapp_restart_policy: "unless-stopped"
+
+indexapp_db_image: "postgres:17-alpine"
+indexapp_db_name: "indexapp"
+indexapp_db_user: "indexapp"
+indexapp_redis_image: "redis:8-alpine"
+
+indexapp_gunicorn_workers: 3
+indexapp_max_upload_mb: 256
+indexapp_job_timeout: 1800
+indexapp_log_level: "INFO"
+# nginx `internal` location that aliases indexapp_data_dir (nginx_proxies)
+indexapp_x_accel_prefix: "/protected-files"
+
+# Mail: dummy until the real provider is configured (PLAN.md). Sending then
+# fails and the admin sees invitation links on the page instead.
+indexapp_mail_server: "localhost"
+indexapp_mail_port: 25
+indexapp_mail_use_tls: false
+indexapp_mail_username: ""
+indexapp_mail_password: ""
+indexapp_mail_default_sender: "noreply@sam-projekte.de"
+
+# Optional, pass with -e only: create/promote an admin on this run
+# indexapp_admin_email: ""
+# indexapp_admin_password: ""
+
+# Opt-in, pass with -e only: import the old app (tasks/legacy_import.yml)
+#   -e indexapp_legacy_import=true -e indexapp_legacy_dump=/path/on/control/index_app.dump
+indexapp_legacy_import: false
