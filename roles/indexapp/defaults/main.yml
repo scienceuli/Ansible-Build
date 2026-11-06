@@ -1,11 +1,12 @@
 ---
 # roles/indexapp/defaults/main.yml
 #
-# Index App (Flask, github.com/scienceuli/indexapp) as docker compose stack:
-# web (migrations + gunicorn), worker (RQ: PDF annotations -> index, LuaLaTeX),
-# Postgres 17 and Redis. The nginx container of the docker host (roles
+# Index App (Flask, github.com/scienceuli/indexapp) as docker compose stack,
+# like the eventmanager one instance per indexapp_name: <name> (web: migrations +
+# gunicorn), <name>-worker (RQ: PDF annotations -> index, LuaLaTeX), <name>-db
+# (Postgres 17), <name>-redis. The nginx container of the docker host (roles
 # nginx/certbot, nginx_proxies in the host's vars) terminates TLS, proxies to
-# indexapp-web over the shared docker network and serves downloads from the
+# <indexapp_name> over the shared docker network and serves downloads from the
 # bind-mounted data dir via X-Accel-Redirect (internal location).
 
 # Required, set in host_vars (no sane default):
@@ -25,7 +26,10 @@ indexapp_deploy_key_path: "/root/.ssh/indexapp_deploy_key"
 indexapp_github_host_key: >-
   github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
 
-indexapp_compose_dir: "/opt/docker/indexapp"
+# instance name: compose project, folder and container names (web = the name itself,
+# the nginx proxy's dest_hostname)
+indexapp_name: "indexapp"
+indexapp_compose_dir: "/opt/docker/{{ indexapp_name }}"
 indexapp_src_dir: "{{ indexapp_compose_dir }}/src"
 # uploads + results (DATA_DIR/<user>/<workflow>/); nginx reads it read-only
 indexapp_data_dir: "{{ indexapp_compose_dir }}/data"
@@ -69,3 +73,7 @@ indexapp_mail_default_sender: "noreply@sam-projekte.de"
 # Opt-in, pass with -e only: import the old app (tasks/legacy_import.yml)
 #   -e indexapp_legacy_import=true -e indexapp_legacy_dump=/path/on/control/index_app.dump
 indexapp_legacy_import: false
+
+# Opt-in, pass with -e only: replace the database with a dump (pg_dump -Fc of another
+# instance, e.g. moving faraday -> lovelace). See roles/compose_pg_restore.
+#   -e indexapp_restore_dump=/path/on/control/indexapp.pgdump

@@ -84,7 +84,7 @@
   register: indexapp_compose_file
 
 # Migrations run in the web container's entrypoint; the image build runs `flask selftest`
-- name: Build and (re)start the index app via docker compose
+- name: Build and (re)start the index app ({{ indexapp_name }}) via docker compose
   community.docker.docker_compose_v2:
     project_src: "{{ indexapp_compose_dir }}"
     state: present
@@ -94,7 +94,7 @@
 - name: Wait until the app is healthy (DB + Redis)
   ansible.builtin.command:
     cmd: >-
-      docker exec indexapp-web python -c "import urllib.request;
+      docker exec {{ indexapp_name }} python -c "import urllib.request;
       urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=5)"
   register: indexapp_health
   retries: 30
@@ -104,7 +104,7 @@
 
 - name: Self-test of the indexing pipeline (LuaLaTeX, fonts, makeindex) in the worker
   ansible.builtin.command:
-    cmd: docker exec indexapp-worker flask selftest
+    cmd: docker exec {{ indexapp_name }}-worker flask selftest
   register: indexapp_selftest
   changed_when: false
 
@@ -115,17 +115,30 @@
 # Opt-in: -e indexapp_admin_email=... -e indexapp_admin_password=...
 - name: Create or promote admin
   ansible.builtin.command:
-    cmd: docker exec indexapp-web flask create-admin {{ indexapp_admin_email }} --password {{ indexapp_admin_password }}
+    cmd: docker exec {{ indexapp_name }} flask create-admin {{ indexapp_admin_email }} --password {{ indexapp_admin_password }}
   no_log: true
   when: indexapp_admin_email | default('') != '' and indexapp_admin_password | default('') != ''
 
-# Output goes to syslog: journalctl -t indexapp-cleanup
+# Output goes to syslog: journalctl -t <indexapp_name>-cleanup
 - name: Daily housekeeping (old invitations, orphaned folders are listed)
   ansible.builtin.cron:
-    name: "indexapp cleanup"
+    name: "{{ indexapp_name }} cleanup"
     minute: "17"
     hour: "4"
-    job: docker exec indexapp-web flask cleanup 2>&1 | logger -t indexapp-cleanup
+    job: docker exec {{ indexapp_name }} flask cleanup 2>&1 | logger -t {{ indexapp_name }}-cleanup
+
+# Opt-in: -e indexapp_restore_dump=/path/on/control/machine.pgdump (pg_dump -Fc)
+- name: Replace the database with a dump
+  ansible.builtin.include_role:
+    name: compose_pg_restore
+  vars:
+    compose_pg_restore_dump: "{{ indexapp_restore_dump }}"
+    compose_pg_restore_project_dir: "{{ indexapp_compose_dir }}"
+    compose_pg_restore_db_container: "{{ indexapp_name }}-db"
+    compose_pg_restore_db_name: "{{ indexapp_db_name }}"
+    compose_pg_restore_db_user: "{{ indexapp_db_user }}"
+    compose_pg_restore_app_services: [web, worker]
+  when: indexapp_restore_dump | default('') != ''
 
 # Opt-in, see defaults: -e indexapp_legacy_import=true -e indexapp_legacy_dump=...
 - name: Import the legacy app (users, workflows, files)

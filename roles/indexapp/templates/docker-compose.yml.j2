@@ -1,8 +1,9 @@
 {{ ansible_managed | comment }}
+name: "{{ indexapp_name }}"
 services:
   db:
     image: "{{ indexapp_db_image }}"
-    container_name: "indexapp-db"
+    container_name: "{{ indexapp_name }}-db"
     restart: "{{ indexapp_restart_policy }}"
     environment:
       POSTGRES_DB: "{{ indexapp_db_name }}"
@@ -17,7 +18,7 @@ services:
 
   redis:
     image: "{{ indexapp_redis_image }}"
-    container_name: "indexapp-redis"
+    container_name: "{{ indexapp_name }}-redis"
     restart: "{{ indexapp_restart_policy }}"
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
@@ -25,12 +26,12 @@ services:
 
   web:
     build: ./src
-    image: "indexapp:latest"
-    container_name: "indexapp-web"
+    image: "{{ indexapp_name }}:latest"
+    container_name: "{{ indexapp_name }}"
     restart: "{{ indexapp_restart_policy }}"
     command: ["web"]          # migrations, then gunicorn (docker/entrypoint.sh)
     env_file: .env
-    # reached by the nginx container as indexapp-web:8000; no published port
+    # reached by the nginx container as {{ indexapp_name }}:8000; no published port
     networks:
       - default
       - proxy
@@ -43,9 +44,9 @@ services:
         condition: service_started
 
   worker:
-    image: "indexapp:latest"
+    image: "{{ indexapp_name }}:latest"
     pull_policy: never        # built locally by the web service
-    container_name: "indexapp-worker"
+    container_name: "{{ indexapp_name }}-worker"
     restart: "{{ indexapp_restart_policy }}"
     command: ["worker"]
     env_file: .env

@@ -2,22 +2,30 @@
 
 App: <https://github.com/scienceuli/indexapp> (private). Plan and decisions: `PLAN.md` there.
 
-Docker compose stack in `/opt/docker/indexapp` on the docker host:
+One docker compose stack per instance (`indexapp_name`, like the eventmanager) in
+`/opt/docker/<indexapp_name>` on the docker host:
 
 | container | |
 |---|---|
-| `indexapp-web` | gunicorn; runs `flask db upgrade` on start |
-| `indexapp-worker` | RQ worker: PDF annotations → txt/xlsx/Cindex/docx, makeindex + LuaLaTeX |
-| `indexapp-db` | Postgres 17 |
-| `indexapp-redis` | job queue + rate limits |
+| `<name>` | web: gunicorn; runs `flask db upgrade` on start (nginx `dest_hostname`) |
+| `<name>-worker` | RQ worker: PDF annotations → txt/xlsx/Cindex/docx, makeindex + LuaLaTeX |
+| `<name>-db` | Postgres 17 |
+| `<name>-redis` | job queue + rate limits |
 
-The host's nginx container proxies `indexapp_domain` to `indexapp-web:8000` and serves
+The host's nginx container proxies `indexapp_domain` to `<name>:8000` and serves
 downloads from `/opt/docker/indexapp/data` via the `internal` location `/protected-files/`
 (X-Accel-Redirect, after the app's permission check). Backups: two `restic_backup_set`
 entries in the host's vars (DB dump + data dir).
 
-Instance now: `faraday_indexapp` → **https://indexapp.sam-projekte.de** (interim, until the
-old server sam-projekte.net is re-imaged; basic auth `testing` during the test phase).
+Instances (inventory group `indexapp`, docker hosts in `indexapp_docker_hosts`):
+
+| inventory host | name | URL | |
+|---|---|---|---|
+| `lovelace_indexapp` | `indexapp-prod` | **https://editingapps.de** | production; sam-projekte.net, www.* redirect |
+| `faraday_indexapp` | `indexapp` | https://indexapp.sam-projekte.de | former interim instance |
+
+Always limit a run to one instance and its docker host:
+`-l lovelace,lovelace_indexapp` (production) or `-l faraday,faraday_indexapp`.
 
 ## First deployment
 
@@ -31,7 +39,7 @@ ansible-playbook -i inventories/hosts.yml playbooks/indexapp/playbook.yml -l far
 #    gh repo deploy-key add key.pub -R scienceuli/indexapp -t faraday-indexapp
 
 # 2. everything (network, app, nginx vhost + certificate)
-ansible-playbook -i inventories/hosts.yml playbooks/indexapp/playbook.yml
+ansible-playbook -i inventories/hosts.yml playbooks/indexapp/playbook.yml -l lovelace,lovelace_indexapp
 
 # 3. first admin (if no legacy import)
 ansible-playbook -i inventories/hosts.yml playbooks/indexapp/playbook.yml -l faraday_indexapp \
@@ -48,6 +56,22 @@ incl. LuaLaTeX on a generated PDF).
 
 `git push` to `main` of the app, then step 2 again (or `-l faraday_indexapp` only: the
 source change triggers a rebuild + restart).
+
+## Move an instance to another host (done 2026-11-06: faraday → lovelace)
+
+```sh
+# 1. new instance deployed (empty), see above
+# 2. maintenance on the old one: stop web + worker (nothing changes any more)
+ssh faraday.science-and-more.com 'cd /opt/docker/indexapp && sudo docker compose stop web worker'
+# 3. database -> control machine
+ssh faraday.science-and-more.com 'sudo docker exec indexapp-db pg_dump -Fc -U indexapp indexapp' > indexapp.pgdump
+# 4. files server to server (agent forwarding), then owner = container user
+ssh -A lovelace.science-and-more.com 'sudo rsync -a -e "ssh -l scienceuli" --rsync-path="sudo rsync" \
+    faraday.science-and-more.com:/opt/docker/indexapp/data/ /opt/docker/indexapp-prod/data/'
+# 5. restore the dump into the new instance (stops web/worker, replaces the DB, starts them)
+ansible-playbook -i inventories/hosts.yml playbooks/indexapp/playbook.yml -l lovelace,lovelace_indexapp \
+  -e indexapp_restore_dump=$PWD/indexapp.pgdump
+```
 
 ## Import of the legacy app (users, workflows, files)
 

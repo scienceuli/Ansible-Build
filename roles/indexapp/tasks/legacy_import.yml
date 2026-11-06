@@ -32,7 +32,7 @@
 
 - name: Recreate the legacy database in the db container
   ansible.builtin.command:
-    cmd: docker exec indexapp-db psql -U {{ indexapp_db_user }} -d {{ indexapp_db_name }} -c "{{ item }}"
+    cmd: docker exec {{ indexapp_name }}-db psql -U {{ indexapp_db_user }} -d {{ indexapp_db_name }} -c "{{ item }}"
   loop:
     - DROP DATABASE IF EXISTS index_legacy
     - CREATE DATABASE index_legacy
@@ -42,7 +42,7 @@
 - name: Restore the legacy dump
   ansible.builtin.shell:
     cmd: >-
-      docker exec -i indexapp-db pg_restore --no-owner --no-privileges
+      docker exec -i {{ indexapp_name }}-db pg_restore --no-owner --no-privileges
       -U {{ indexapp_db_user }} -d index_legacy < {{ indexapp_compose_dir }}/legacy.dump
   register: indexapp_restore
   failed_when: >-
@@ -53,7 +53,7 @@
 - name: Import (resets the new app's data first)
   ansible.builtin.command:
     cmd: >-
-      docker exec indexapp-worker flask migrate-legacy --legacy-db-name index_legacy
+      docker exec {{ indexapp_name }}-worker flask migrate-legacy --legacy-db-name index_legacy
       --uploads /data/_legacy/uploads --results /data/_legacy/results --hardlink
       --reset --yes --report /tmp/migration-report.json
   register: indexapp_import
@@ -65,7 +65,7 @@
 
 - name: Keep the import report next to the compose file
   ansible.builtin.command:
-    cmd: docker cp indexapp-worker:/tmp/migration-report.json {{ indexapp_compose_dir }}/migration-report.json
+    cmd: docker cp {{ indexapp_name }}-worker:/tmp/migration-report.json {{ indexapp_compose_dir }}/migration-report.json
   changed_when: true
 
 - name: Remove the dump copy from the host

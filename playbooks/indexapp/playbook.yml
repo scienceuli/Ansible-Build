@@ -1,10 +1,11 @@
 ---
 # Index App (github.com/scienceuli/indexapp). See HOW_TO_DEPLOY.md.
+# Limit to one instance + its docker host, e.g. -l lovelace,lovelace_indexapp
 # Order matters: the network must exist before the compose stack joins it, and
 # indexapp-web must be running before nginx tests its config (nginx -t resolves
 # the upstream); the data dir must exist before nginx bind-mounts it.
-- name: Docker + shared network on faraday
-  hosts: faraday
+- name: Docker + shared network on the docker hosts
+  hosts: indexapp_docker_hosts
   roles:
     - docker_network
 
@@ -14,8 +15,8 @@
   roles:
     - indexapp
 
-- name: Reverse proxy + TLS on faraday (nginx_proxies in host_vars/faraday)
-  hosts: faraday
+- name: Reverse proxy + TLS on the docker hosts (nginx_proxies in host_vars/<host>)
+  hosts: indexapp_docker_hosts
   roles:
     - role: htpasswd
       tags: htpasswd
