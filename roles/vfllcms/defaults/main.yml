@@ -88,6 +88,9 @@ vfllcms_openai_api_key: ""
 
 # Optional integrations, empty = disabled (container_settings.py defaults)
 vfllcms_show_jubilee: false
+# Text of a ribbon in the top left corner of every page (e.g. "Staging");
+# empty = no ribbon (production)
+vfllcms_environment_ribbon: ""
 vfllcms_admission_regulations: ""
 vfllcms_token_url: ""
 vfllcms_member_admin_url: ""

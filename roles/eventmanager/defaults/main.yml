@@ -54,6 +54,8 @@ eventmanager_mailqueue_autosend: true
 
 eventmanager_debug: false
 eventmanager_use_2fa: false
+# "DEV" ribbon in the corner of every page (marks non-production instances)
+eventmanager_show_dev_ribbon: false
 eventmanager_log_level: "INFO"
 
 # Mail: the file backend writes mails to {{ eventmanager_data_dir }}/sent_emails
