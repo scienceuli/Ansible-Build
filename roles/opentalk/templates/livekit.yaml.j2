@@ -1,0 +1,18 @@
+{{ ansible_managed | comment }}
+# Like init/livekit-init.sh of ot-setup, but bridge network + UDP mux on one port
+port: 7880
+rtc:
+  tcp_port: {{ opentalk_livekit_tcp_port }}
+  udp_port: {{ opentalk_livekit_udp_port }}
+{% if opentalk_livekit_node_ip %}
+  node_ip: "{{ opentalk_livekit_node_ip }}"
+  use_external_ip: false
+{% else %}
+  use_external_ip: true
+{% endif %}
+  enable_loopback_candidate: false
+keys:
+  {{ opentalk_livekit_api_key }}: {{ opentalk_livekit_api_secret | to_json }}
+logging:
+  json: false
+  level: {{ opentalk_livekit_log_level }}

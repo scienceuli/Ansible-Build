@@ -1,118 +1,145 @@
-# VFLL Eventmanager on faraday
+# VFLL Eventmanager on bohr
 
-Staging instance `eventmanager-staging` on faraday:
-`https://staging.veranstaltungskalender.vfll.de` (basic auth `testing`, user
-`vfll`). Docker compose stack in `/opt/docker/eventmanager-staging`, fronted by
-the nginx container (`nginx` + `certbot` roles, like on backup). The web
-container joins the docker network `science-and-more.com` and nginx proxies to
-`eventmanager-staging:8000`.
+Two instances on the docker host `bohr` (Debian 13, since 2026-11-07),
+each a docker compose stack behind the nginx container (`nginx` +
+`certbot` roles, `nginx_proxies` in `inventories/host_vars/bohr/vars.yml`):
 
-## Instances
-
-`eventmanager_name` (role `eventmanager`, default `eventmanager`) names one
-instance, so production and staging can share a host:
-
-| | production | staging (faraday, since 2026-11-06) |
+| | production | staging |
 |---|---|---|
-| `eventmanager_name` | `eventmanager` | `eventmanager-staging` |
-| web container = nginx `dest_hostname` | `eventmanager` | `eventmanager-staging` |
-| other containers | `eventmanager-db`, `-mjml`, `-mailqueue` | `eventmanager-staging-db`, `-mjml`, `-mailqueue` |
+| inventory host | `bohr_eventmanager` | `bohr_eventmanager_staging` |
+| domain | `https://veranstaltungskalender.vfll.de` | `https://staging.veranstaltungskalender.vfll.de` (basic auth `testing`, user `vfll`) |
+| `eventmanager_name` = web container = nginx `dest_hostname` | `eventmanager` | `eventmanager-staging` |
+| other containers | `eventmanager-db`, `-mjml` | `eventmanager-staging-db`, `-mjml` |
 | compose project, image, directory | `eventmanager`, `eventmanager:latest`, `/opt/docker/eventmanager` | `eventmanager-staging`, … , `/opt/docker/eventmanager-staging` |
-| domain | `veranstaltungskalender.vfll.de` | `staging.veranstaltungskalender.vfll.de` |
+| mail | SMTP | file backend (`data/sent_emails`) |
+| Mailgun, cron `fetch_emails` | yes | no |
+| restic backup | yes | no |
 
-Each instance is one inventory host (here `faraday_eventmanager_staging`) with its own
-`eventmanager_*` vars; on the docker host its own `nginx_proxies` entry,
-`nginx_extra_volumes` (`/srv/<name>/static`, `/srv/<name>/media`) and
-`restic_backup_set` entries.
+The web containers join the docker network `science-and-more.com` and nginx
+proxies to `<eventmanager_name>:8000`.
+
+Before 2026-11-07 production ran natively on the old bohr (Ubuntu 20.04,
+gunicorn under supervisor, `~/eventmanager_dev`, DB `vfllfobi_dev`), and
+staging ran on faraday. See [HOW_TO_DEPLOY.md](HOW_TO_DEPLOY.md), "Migration
+from the native bohr".
+
+## Services
 
 | Service     | What                                                        |
 |-------------|-------------------------------------------------------------|
-| `web`       | Django + gunicorn, `eventmanager-staging:8000` (no host port); runs migrate + collectstatic on start |
-| `mailqueue` | `manage.py send_queued_messages` every 60 s (django-mail-queue) |
+| `web`       | Django + gunicorn on port 8000 (no host port); runs migrate + collectstatic on start |
 | `mjml`      | MJML TCP server for MJML newsletters                        |
-| `db`        | Postgres 16, data in `/opt/docker/eventmanager-staging/db-data`     |
+| `db`        | Postgres 16, data in `/opt/docker/<name>/db-data`           |
+| `mailqueue` | only with `eventmanager_mailqueue_autosend: true` (see below) |
 
 The image is built on the host from the public GitHub repo
-(`eventmanager_git_version`, default `main`): push first, then re-run.
-`Dockerfile`, `docker/` and `eventmanager/container_settings.py` live in the
-eventmanager repo.
+(`eventmanager_git_version`, default `main`). Push first, then re-run the
+playbook. `Dockerfile`, `docker/` and `eventmanager/container_settings.py`
+live in the eventmanager repo.
+
+## Mail queue: sent by an admin, not automatically
+
+Mails (invoices, confirmations, ...) are queued (django-mail-queue,
+`MAILQUEUE_QUEUE_UP = True`) and **stay in the queue until an admin sends
+them** in the mail queue admin. That is how the native bohr worked, and it is
+set with `eventmanager_mailqueue_autosend: false` in both bohr instances.
+
+With `eventmanager_mailqueue_autosend: true` (role default), a `mailqueue`
+container runs `manage.py send_queued_messages` every 60 s. Switching back
+to `false` removes that container (`remove_orphans`). Before switching to
+`true`, check the backlog: every unsent mail in the queue goes out right
+away.
+
+    sudo docker exec eventmanager-db psql -U eventmanager eventmanager \
+      -c "select sent, count(*) from mailqueue_mailermessage group by 1"
 
 ## Deploy
 
-Step by step from a fresh server: [HOW_TO_DEPLOY.md](HOW_TO_DEPLOY.md).
+Step by step, from a fresh server: [HOW_TO_DEPLOY.md](HOW_TO_DEPLOY.md).
 
-    ansible-galaxy collection install -r playbooks/eventmanager/requirements.yml
-    ansible-playbook -i inventories playbooks/eventmanager/playbook.yml
+    uv run ansible-galaxy collection install -r playbooks/eventmanager/requirements.yml
+    uv run ansible-playbook -i inventories playbooks/eventmanager/playbook.yml -l bohr,bohr_eventmanager
+    uv run ansible-playbook -i inventories playbooks/eventmanager/playbook.yml -l bohr,bohr_eventmanager_staging
+
+Always limit to the instance(s) plus their docker host `bohr`: the first and
+last play (docker network, htpasswd/certbot/nginx) run on the docker host.
 
 ## Configuration
 
-Two inventory hosts for the same server:
+- `inventories/host_vars/bohr_eventmanager/` and
+  `inventories/host_vars/bohr_eventmanager_staging/`: `vars.yml` (domain,
+  network, mail, integrations, cron jobs, `eventmanager_mailqueue_autosend`)
+  and `vault.yml`. Each instance has its own `SECRET_KEY`.
+  Staging shares production's `ENCRYPT_KEY`, because the encrypted newsletter
+  tokens in the restored database depend on it.
+- `inventories/host_vars/bohr/vars.yml`: nginx/certbot (`nginx_proxies`,
+  `nginx_extra_volumes`), basic auth (`htpasswd_*`) and restic
+  (`restic_backup_set`) of the docker host.
 
-- `inventories/host_vars/faraday_eventmanager_staging/`: `vars.yml` (domain, docker
-  network, mail backend, ...) and `vault.yml` (Django `SECRET_KEY`, Fernet
-  `ENCRYPT_KEY`, Postgres password).
-- `inventories/host_vars/faraday/vars.yml`: the nginx/certbot containers -
-  `nginx_proxies` (proxy, `/static/`, `/media/`) and `nginx_extra_volumes`
-  (static/ and media/ mounted read-only into nginx).
 All role variables with defaults: `roles/eventmanager/defaults/main.yml`.
-The role renders them into `/opt/docker/eventmanager-staging/.env`, which
-`eventmanager.container_settings` reads. Keep `$` out of secret values
-(compose interpolates it in env files).
+The role renders them into `/opt/docker/<name>/.env`, which
+`eventmanager.container_settings` reads.
 
-Mail: faraday uses the file backend by default, so nothing leaves the
-server - mails land in `/opt/docker/eventmanager-staging/data/sent_emails`.
+Vault values must be the plain value. Don't wrap them in quotes (`'587'`,
+`'''key'''`), and keep `$` out of them (compose interpolates it in env
+files). Compose rejects quoted values with
+`unexpected character "'" in variable name` - and prints the value in the
+error message.
 
 ## Data
 
-`/opt/docker/eventmanager-staging/data` is mounted at `/data`:
+`/opt/docker/<name>/data` is mounted at `/data`:
 
 - `static/` - collectstatic output, served by the nginx container
-- `media/` - public uploads, served by the nginx container (except `mailqueue-attachments/`)
-- `private/` - invoices, confirmations, private documents; only served by
-  Django (`/private-media/`) after a permission check
-- `sent_emails/` - file mail backend output
+- `media/` - public uploads, served by the nginx container. nginx answers 404
+  for `mailqueue-attachments/` and, as defence in depth, for the old private
+  paths (`invoices/`, `confirmations/`, `uploaded_private_documents/`, `stornos/`)
+- `private/` - invoices, confirmations, private documents
+  (django-private-storage, `PRIVATE_STORAGE_ROOT`). nginx never mounts it,
+  only Django serves it (`/private-media/`) after a permission check.
+- `sent_emails/` - file mail backend output (staging; native history on production)
 
 ## Backup & restore
 
-restic, repo `faraday` on backup.science-and-more.com, configured in
-`inventories/host_vars/faraday/vars.yml` (`restic_backup_set`), applied with
-`playbooks/setup.yml -t restic -l faraday`. Nightly on faraday:
+restic, repo `bohr` on backup.science-and-more.com, **production only**,
+configured in `inventories/host_vars/bohr/vars.yml` (`restic_backup_set`),
+applied with `playbooks/setup.yml -t restic -l bohr`. Nightly on bohr:
 
 | Time | Job | Snapshot tag |
 |---|---|---|
-| 02:06 | `pg_dump` of `eventmanager` → `/var/backup/eventmanager-staging-db/eventmanager.sql` | `postgres` |
-| 02:25 | `/opt/docker/eventmanager-staging/data` (media, private, sent_emails, static) | `files` |
-| 23:xx | `forget --prune` (14 last, 14 daily, 4 weekly, 3 monthly) | |
+| 02:06 | `pg_dump` of `eventmanager` → `/var/backup/eventmanager-db/` | `eventmanager`, `postgres` |
+| 02:25 | `/opt/docker/eventmanager/data` (media, private, sent_emails, static) | `eventmanager`, `files` |
+| 23:36 | `forget --prune` (14 last, 14 daily, 4 weekly, 3 monthly) | |
 
-On faraday (`restic-main` = restic with repo and password preset):
+On bohr (`restic-main` = restic with repo and password preset):
 
     sudo restic-main snapshots --tag eventmanager
-    # database: restore the dump, then replace the live DB with it
-    sudo restic-main restore latest --tag postgres --target /tmp/restore
-    sudo docker-postgres-restore -c eventmanager-staging-db -d eventmanager -r \
-      -f /tmp/restore/var/backup/eventmanager-staging-db/eventmanager.sql
-    # files: restore, then copy back what's needed
-    sudo restic-main restore latest --tag files --target /tmp/restore
-    sudo rsync -a /tmp/restore/opt/docker/eventmanager-staging/data/ /opt/docker/eventmanager-staging/data/
+    sudo restic-main restore latest --tag postgres --tag eventmanager --target /tmp/restore
+    sudo restic-main restore latest --tag files --tag eventmanager --target /tmp/restore
 
-Stop `web` and `mailqueue` (`sudo docker compose stop web mailqueue`) before
-replacing the database, start them again afterwards.
+To put a database dump back, use the playbook with
+`-e eventmanager_restore_dump=<dump on your Mac>`: see HOW_TO_DEPLOY.md,
+"Restore a database dump".
 
 ## First run on a fresh database
 
-    ssh -t scienceuli@faraday.science-and-more.com \
-      "sudo docker exec -it eventmanager-staging python manage.py createsuperuser"
+    ssh -t scienceuli@bohr.science-and-more.com \
+      "sudo docker exec -it eventmanager python manage.py createsuperuser"
 
-Optional initial data shipped in the repo:
+The user groups are required: templates check membership with `has_group`,
+and a missing group gives an Internal Server Error on `/`:
 
-    sudo docker exec eventmanager-staging python manage.py loaddata \
+    sudo docker exec eventmanager python manage.py loaddata \
       data/initial_groups.json data/initial_email_templates.json
+    sudo docker exec eventmanager python manage.py shell -c \
+      "from django.contrib.auth.models import Group; Group.objects.get_or_create(name='newsletter')"
 
 Set the domain of `Site` 1 in the admin (Sites) to the real domain.
 
 ## Useful commands
 
-    cd /opt/docker/eventmanager-staging
+    cd /opt/docker/eventmanager            # or eventmanager-staging
     sudo docker compose logs -f web
     sudo docker compose exec web python manage.py shell
     sudo docker compose exec db psql -U eventmanager eventmanager
+    journalctl -t eventmanager-cron        # fetch_emails (production)

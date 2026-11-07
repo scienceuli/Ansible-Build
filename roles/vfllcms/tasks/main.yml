@@ -25,7 +25,7 @@
     state: directory
     mode: "0755"
 
-# The nginx container (hertz) or host nginx (bohr) reads static/ and
+# The nginx container (or a host nginx) reads static/ and
 # media/ from here, so 0755
 - name: Ensure data directory exists (writable by the container user)
   ansible.builtin.file:
@@ -83,6 +83,19 @@
     build: "{{ 'always' if vfllcms_source_sync.changed else 'policy' }}"
     recreate: "{{ 'always' if (vfllcms_source_sync.changed or vfllcms_env_file.changed or vfllcms_compose_file.changed) else 'auto' }}"
 
+# Output goes to syslog: journalctl -t vfllcms-cron
+- name: Schedule periodic management commands
+  ansible.builtin.cron:
+    name: "{{ vfllcms_name }} {{ item.name }}"
+    minute: "{{ item.minute | default('0') }}"
+    hour: "{{ item.hour | default('*') }}"
+    job: >-
+      docker exec {{ vfllcms_name }}-web uv run manage.py {{ item.command }} 2>&1
+      | logger -t vfllcms-cron
+  loop: "{{ vfllcms_cron_jobs }}"
+  loop_control:
+    label: "{{ item.name }}"
+
 # Opt-in: -e vfllcms_restore_dump=/path/on/control/machine.pgdump
 - name: Replace the database with a dump (containerized db only)
   ansible.builtin.include_role:
@@ -90,7 +103,7 @@
   vars:
     compose_pg_restore_dump: "{{ vfllcms_restore_dump }}"
     compose_pg_restore_project_dir: "{{ vfllcms_compose_dir }}"
-    compose_pg_restore_db_container: "vfllcms-db"
+    compose_pg_restore_db_container: "{{ vfllcms_name }}-db"
     compose_pg_restore_db_name: "{{ vfllcms_db_name }}"
     compose_pg_restore_db_user: "{{ vfllcms_db_user }}"
     compose_pg_restore_app_services: [web]

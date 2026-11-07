@@ -61,6 +61,8 @@
   community.docker.docker_compose_v2:
     project_src: "{{ eventmanager_compose_dir }}"
     state: present
+    # removes the mailqueue container when eventmanager_mailqueue_autosend is off
+    remove_orphans: true
     build: "{{ 'always' if eventmanager_source_sync.changed else 'policy' }}"
     recreate: "{{ 'always' if (eventmanager_source_sync.changed or eventmanager_env_file.changed or eventmanager_compose_file.changed) else 'auto' }}"
 
@@ -87,5 +89,5 @@
     compose_pg_restore_db_container: "{{ eventmanager_name }}-db"
     compose_pg_restore_db_name: "{{ eventmanager_db_name }}"
     compose_pg_restore_db_user: "{{ eventmanager_db_user }}"
-    compose_pg_restore_app_services: [web, mailqueue]
+    compose_pg_restore_app_services: "{{ ['web', 'mailqueue'] if eventmanager_mailqueue_autosend else ['web'] }}"
   when: eventmanager_restore_dump | default('') != ''

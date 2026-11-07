@@ -1,0 +1,16 @@
+{{ ansible_managed | comment }}
+# Single-node Garage (ot-setup extras/opentalk-samples/garage.toml.sample)
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "sqlite"
+replication_factor = 1
+
+rpc_bind_addr = "[::]:3901"
+rpc_secret = "{{ opentalk_garage_rpc_secret }}"
+
+[s3_api]
+api_bind_addr = "[::]:3900"
+s3_region = "unknown"
+
+[admin]
+api_bind_addr = "[::]:3903"

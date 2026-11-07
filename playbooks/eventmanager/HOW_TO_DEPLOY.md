@@ -1,62 +1,50 @@
-# How to deploy: faraday (Debian 13 server) + VFLL Eventmanager
+# How to deploy: VFLL Eventmanager on bohr
 
-From a freshly installed Hetzner server to `https://faraday.science-and-more.com`.
+From a freshly installed bohr (Netcup, Debian 13) to
+`https://veranstaltungskalender.vfll.de` and the staging instance.
 Background on the stack: [README.md](README.md).
 
-Two inventory hosts point at the same server:
+Three inventory hosts point at the same server:
 
 | Inventory host | What it's for | Vars |
 |---|---|---|
-| `faraday` | the server: users, packages, firewall, Docker, nginx + certbot containers | `inventories/host_vars/faraday/vars.yml`, `group_vars/setup`, `group_vars/debian13.yml` |
-| `faraday_eventmanager_staging` | the app: compose stack in `/opt/docker/eventmanager-staging` | `inventories/host_vars/faraday_eventmanager_staging/` |
+| `bohr` | the server: users, packages, firewall, Docker, nginx + certbot containers, restic | `inventories/host_vars/bohr/`, `group_vars/setup`, `group_vars/debian13.yml` |
+| `bohr_eventmanager` | production stack in `/opt/docker/eventmanager` | `inventories/host_vars/bohr_eventmanager/` |
+| `bohr_eventmanager_staging` | staging stack in `/opt/docker/eventmanager-staging` | `inventories/host_vars/bohr_eventmanager_staging/` |
+
+The VFLL Wagtail CMS runs on the same server
+([../vfllcms/HOW_TO_DEPLOY.md](../vfllcms/HOW_TO_DEPLOY.md)). Steps 1-3 are
+the same for both apps: do them once.
 
 Run every command **from the repo root** (`~/Devel/Ansible-Build`), so
-`ansible.cfg` and `.vault-pass` are found, and always with `-l faraday`
-where shown: `setup.yml` and `bootstrap.yml` target the whole `setup`
-group, which also contains `localhost`.
+`ansible.cfg` and `.vault-pass` are found, and always with `-l` as shown:
+`setup.yml` and `bootstrap.yml` target the whole `setup` group, which also
+contains `localhost`.
 
 ## 0. Prerequisites
 
-- `faraday.science-and-more.com` resolves to the server
-  (`dig +short faraday.science-and-more.com` → `37.27.144.19`).
-- Hetzner put your SSH key on `root` (chosen when creating the server).
-- Secrets in `inventories/host_vars/faraday_eventmanager_staging/vault.yml`:
+- DNS at all-inkl (KAS): `veranstaltungskalender.vfll.de` and
+  `staging.veranstaltungskalender.vfll.de` → `94.16.123.175` (bohr). Check:
+  `dig +short veranstaltungskalender.vfll.de`.
+- In the Netcup server control panel (SCP), your SSH key is put on `root`
+  when you reinstall the image.
+- Secrets in `inventories/host_vars/bohr_eventmanager*/vault.yml`:
   `vault_eventmanager_secret_key`, `vault_eventmanager_encrypt_key`,
-  `vault_eventmanager_db_password`. Keep `$` out of them (compose interpolates it).
+  `vault_eventmanager_db_password`, SMTP, member admin, Mailgun (production).
+  Plain values only - no quotes around them, no `$` (README, "Configuration").
 - Ansible collections: `uv run ansible-galaxy collection install -r playbooks/eventmanager/requirements.yml`
-- Optional: add `ansible_user: scienceuli` to `faraday_eventmanager_staging` in
-  `inventories/hosts.yml` - without it Ansible connects with your local
-  username (which happens to be the same).
 
-## 1. Trust the server's SSH host key
+## 1. Trust the new SSH host key
 
-```sh
-ssh-keyscan -t ed25519 faraday.science-and-more.com 2>/dev/null | ssh-keygen -lf -
-```
-
-Compare the fingerprint with the one Hetzner shows for the server (Cloud
-Console → server → *Rescue/Console*, or the install mail). Only if it
-matches, log in once as root and accept it:
+A reinstall changes it:
 
 ```sh
-ssh root@faraday.science-and-more.com true
+ssh-keygen -R bohr.science-and-more.com; ssh-keygen -R 94.16.123.175
+ssh root@bohr.science-and-more.com true      # accept the new key
 ```
 
-### No SSH key on root (`Permission denied (publickey,password)`)
-
-If no key was selected when the server was created, use a root password once:
-
-1. Cloud Console → server → **Rescue** → **Reset root password**; copy it
-   (shown only once).
-2. Verify the host key: open the web console (`>_`), log in as `root`, run
-   `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` and compare it with
-   what `ssh-keyscan` showed above.
-3. From your Mac: `ssh-copy-id -i ~/.ssh/id_rsa.pub root@faraday.science-and-more.com`
-   (answer `yes` to the host key, enter the root password).
-4. `ssh root@faraday.science-and-more.com true` must now work without a password.
-
-No need to keep that password: step 2 replaces it (`vault_iam_root_password`)
-and step 3 disables root and password logins over SSH.
+Mind the domain: `bohr.science-and-more.com`, **not** `.de` (that's a
+different server, which asks for a password).
 
 ## 2. Bootstrap: create your user (as root)
 
@@ -65,170 +53,158 @@ Installs the `debian13` packages (incl. `sudo`, `zsh`, `git`, `acl`) and runs
 root password):
 
 ```sh
-task play -i inventories playbooks/bootstrap.yml -l faraday
+uv run ansible-playbook -i inventories playbooks/bootstrap.yml -l bohr
+ssh scienceuli@bohr.science-and-more.com 'sudo -n whoami'   # → root
 ```
 
-Check that your own user works before continuing - the next step disables
-root login over SSH:
+Check that before continuing - the next step disables root login over SSH.
 
-```sh
-ssh scienceuli@faraday.science-and-more.com 'sudo -n whoami'   # → root
-```
-
-## 3. Server setup (as scienceuli)
+## 3. Server setup (as scienceuli), without restic
 
 Timezone, DNS resolvers, locale, cron helpers, maintenance jobs, Docker +
 the `science-and-more.com` network, `ufw` (22/80/443 only), SSH hardening,
-`iam` again, and the restic backup client (repo `faraday` on
-backup.science-and-more.com):
+`iam` again:
 
 ```sh
-task play -i inventories playbooks/setup.yml -l faraday
+uv run ansible-playbook -i inventories playbooks/setup.yml -l bohr --skip-tags restic
 ```
 
-(`--check` doesn't work on a fresh server - apt's check mode needs
-`python3-apt`, which only a real run installs.)
+Skip restic on a fresh server: the restic role checks that the backed-up
+paths (`/opt/docker/eventmanager/data`, ...) exist, and they only appear
+with the app deploy - with restic, the setup stops there and the roles after
+it (Docker, ufw, iam) don't run. restic follows in step 7.
 
-## 4. Deploy the Eventmanager
+## 4. Deploy both instances (without nginx)
 
 ```sh
-task play -i inventories playbooks/eventmanager/playbook.yml
+uv run ansible-playbook -i inventories playbooks/eventmanager/playbook.yml \
+  -l bohr,bohr_eventmanager,bohr_eventmanager_staging --skip-tags htpasswd,certbot,nginx
 ```
 
-Three plays, in this order:
+Clones the repo, builds the image (the first build takes a few minutes),
+starts `db`, `mjml`, `web`. nginx comes once all apps on bohr are deployed
+(step 6): it bind-mounts the data dirs of all four instances.
 
-1. `faraday`: Docker + network (no-op after step 3).
-2. `faraday_eventmanager_staging`: clones the repo, builds the image, starts
-   `db`, `mjml`, `web`, `mailqueue`. The first build takes a few minutes.
-3. `faraday`: certbot issues the Let's Encrypt certificate (port 80 must be
-   reachable and DNS correct), then nginx starts with TLS and proxies to
-   `eventmanager-staging:8000`.
+To fill the databases from a dump, add `-e eventmanager_restore_dump=...`
+(see "Restore a database dump"). On a fresh database: README.md, "First run
+on a fresh database".
 
-## 5. Check it
+## 5. Media
+
+Uploads aren't in the dump. See "Migration from the native bohr" for
+the move from the old layout, or restore `data/` from restic.
+
+## 6. Reverse proxy + TLS (all apps on bohr)
+
+Once the eventmanager **and** vfllcms instances are deployed:
 
 ```sh
+uv run ansible-playbook -i inventories playbooks/eventmanager/playbook.yml -l bohr -t htpasswd,certbot,nginx
+```
+
+certbot issues the Let's Encrypt certificates for all `nginx_proxies` of bohr
+(port 80 reachable, DNS correct), then nginx starts with TLS. Check:
+
+```sh
+curl -I https://veranstaltungskalender.vfll.de                          # 200
 curl -I https://staging.veranstaltungskalender.vfll.de                  # 401 (basic auth)
-curl -I -u vfll:<password> https://staging.veranstaltungskalender.vfll.de   # 200/302 from Django
-curl -I http://staging.veranstaltungskalender.vfll.de                   # 301 → https
-task connect-host faraday
-  docker ps                                            # nginx01, eventmanager-staging/-db/-mjml/-mailqueue
-  cd /opt/docker/eventmanager-staging && sudo docker compose logs -f web
+curl -I http://veranstaltungskalender.vfll.de                           # 301 → https
+curl -I https://veranstaltungskalender.vfll.de/media/invoices/x.pdf     # 404
+ssh scienceuli@bohr.science-and-more.com docker ps
 ```
 
-## 6. First run on a fresh database
+## 7. Backup
 
 ```sh
-ssh -t scienceuli@faraday.science-and-more.com \
-  "sudo docker exec -it eventmanager-staging python manage.py createsuperuser"
+uv run ansible-playbook -i inventories playbooks/setup.yml -l bohr -t restic
 ```
 
-**Required:** the user groups. Templates check membership with the
-`has_group` filter, and a missing group gives an Internal Server Error on `/`
-(`Group matching query does not exist`):
-
-```sh
-ssh -t scienceuli@faraday.science-and-more.com \
-  "sudo docker exec eventmanager-staging python manage.py loaddata data/initial_groups.json data/initial_email_templates.json"
-# "newsletter" is used in templates but missing from initial_groups.json:
-ssh -t scienceuli@faraday.science-and-more.com \
-  "sudo docker exec eventmanager-staging python manage.py shell -c \"from django.contrib.auth.models import Group; Group.objects.get_or_create(name='newsletter')\""
-```
-
-Then set the `Site` domain - see
-[README.md](README.md#first-run-on-a-fresh-database).
+Initializes the repo `bohr` on backup.science-and-more.com (on the first run
+the "Check if repo is initialized" error is expected and ignored) and
+registers the cron jobs (production only, see README).
 
 ## Later deployments
 
-- **New app version:** push to `main` of the eventmanager repo, then re-run step 4.
-- **Only proxy config changed** (`host_vars/faraday/vars.yml`):
-  `task plays -i inventories playbooks/eventmanager/playbook.yml -t nginx`
-- **Server baseline changed:** re-run step 3.
+- **New app version:** push to `main` of the eventmanager repo, then
+  `uv run ansible-playbook -i inventories playbooks/eventmanager/playbook.yml -l bohr,bohr_eventmanager`
+  (or `bohr_eventmanager_staging` - test there first).
+- **Only proxy config changed** (`host_vars/bohr/vars.yml`): step 6 with `-t nginx`.
+- **Server baseline changed:** `setup.yml -l bohr` (now with restic).
 
-## Restore a production dump
+## Restore a database dump
 
 Replaces the database with a `pg_dump -Fc` file from your Mac (role
-`compose_pg_restore`: stops web + mailqueue, drops/recreates the db, restores
-in one transaction, starts the app, which migrates):
+`compose_pg_restore`: stops the app services, drops/recreates the db,
+restores in one transaction, starts the app, which migrates):
 
 ```sh
-task play -i inventories playbooks/eventmanager/playbook.yml \
-  -l faraday,faraday_eventmanager_staging -e eventmanager_restore_dump=$HOME/path/to/eventmanager.pgdump
+uv run ansible-playbook -i inventories playbooks/eventmanager/playbook.yml \
+  -l bohr,bohr_eventmanager_staging --skip-tags htpasswd,certbot,nginx \
+  -e eventmanager_restore_dump=$HOME/path/to/eventmanager.pgdump
 ```
 
-Files are separate. Private uploads go to `data/private`, not `data/media` -
-nginx serves `media/` publicly (bohr kept everything in `media/`):
+Refreshing staging from production: dump production on bohr first
+(`sudo docker exec eventmanager-db pg_dump -Fc -U eventmanager eventmanager > ...`),
+copy it to your Mac, then run the above.
 
-```sh
-B=~/Devel/vfll_backups/migration_2026-11/eventmanager_media   # copy of bohr's media/
-H=scienceuli@faraday.science-and-more.com; D=/opt/docker/eventmanager-staging/data
-rsync -a --rsync-path="sudo rsync" --exclude=/invoices/ --exclude=/confirmations/ \
-  --exclude=/uploaded_private_documents/ --exclude=/stornos/ $B/ $H:$D/media/
-for p in invoices confirmations uploaded_private_documents stornos; do
-  [ -d "$B/$p" ] && rsync -a --rsync-path="sudo rsync" "$B/$p/" "$H:$D/private/$p/"
-done
-ssh $H "sudo chown -R 1000:1000 $D/media $D/private"
-```
+**Production with SMTP:** check the mail queue of the dump before (README,
+"Mail queue") - with `eventmanager_mailqueue_autosend: true` every unsent
+mail goes out right after the restore. On 2026-11-07 production was
+restored with
+`-e eventmanager_email_backend=django.core.mail.backends.filebased.EmailBackend`
+first, the 52 old unsent mails set to `sent`, and only then deployed with
+SMTP.
 
-## Cutover from bohr (veranstaltungskalender.vfll.de)
+## Migration from the native bohr (2026-11-07)
 
-> Since 2026-11-06 the instance on faraday is **staging**
-> (`eventmanager-staging`, `https://staging.veranstaltungskalender.vfll.de`).
-> Production gets its own instance `eventmanager` (see README, "Instances"):
-> its own inventory host with `eventmanager_name: eventmanager`, the PRODUCTION
-> settings from `host_vars/faraday_eventmanager_staging/vars.yml`, and the commented
-> production entries in `host_vars/faraday/vars.yml`. The steps below are from
-> the time faraday itself was meant to become production.
+How production moved from the hand-installed bohr (Ubuntu 20.04) to the
+reinstalled one, for reference:
 
-faraday already runs with production's `SECRET_KEY`/`ENCRYPT_KEY`, SMTP and
-member-admin settings (`host_vars/faraday_eventmanager_staging`), but on its own
-name, with mails to files, without Mailgun and without the cron job. The
-`CUTOVER` comments in `host_vars/faraday_eventmanager_staging/vars.yml` and
-`host_vars/faraday/vars.yml` mark what to switch. Expect ~30 min downtime.
-
-1. **A day before:** lower the TTL of `veranstaltungskalender.vfll.de` at
-   all-inkl (KAS) to 300 s.
-2. **Freeze bohr:** set `MAINTENANCE_MODE = True` in
-   `~/eventmanager_dev/eventmanager/local_settings.py`, restart gunicorn
-   (`sudo systemctl restart gunicornemdev`), and comment out the
-   `manage.py crontab run` and `backup_em.sh` lines in `crontab -e`.
-3. **Fresh copy:** dump on bohr and fetch the media again (see
-   "Restore a production dump"; rsync only transfers what changed):
+1. **Freeze:** `sudo supervisorctl stop vfllcms eventmanager_dev` and the
+   crontab lines commented out on the old bohr.
+2. **Final backup to the Mac:**
+   `playbooks/bohr_migration/backup_bohr_native.sh <dir>` - pg_dumps of
+   `vfllcms` and `vfllfobi_dev` (= eventmanager), `/home/scienceuli` without
+   venvs (code, media, `.env`, settings), nginx/supervisor config. It refuses
+   to run while gunicorn is up. Result:
+   `~/hetzner_nc/Backups/vfll_backups/final/`.
+3. Reinstall, steps 1-4 with `-e eventmanager_restore_dump=.../final/eventmanager.pgdump`.
+4. **Media:** the native app kept the private files in `media/` (no
+   `PRIVATE_STORAGE_ROOT`). The database stores them relative to the storage
+   root (`invoices/...`), so they move one to one into `data/private/`:
    ```sh
-   ssh scienceuli@bohr.science-and-more.com 'f=~/eventmanager_dev/eventmanager/.env; g(){ grep -m1 "^$1=" $f | cut -d= -f2-; }; PGPASSWORD="$(g DB_PASSWORD)" pg_dump -Fc -h "$(g DB_HOST)" -U "$(g DB_USER)" -d "$(g DB_NAME)"' > ~/Devel/vfll_backups/migration_2026-11/eventmanager_cutover.pgdump
-   rsync -a scienceuli@bohr.science-and-more.com:eventmanager_dev/media/ ~/Devel/vfll_backups/migration_2026-11/eventmanager_media/
+   tar -xzf final/home.tar.gz scienceuli/eventmanager_dev/media scienceuli/eventmanager_dev/sent_emails
+   B=scienceuli/eventmanager_dev; H=scienceuli@bohr.science-and-more.com; D=/opt/docker/eventmanager/data
+   rsync -a --rsync-path="sudo rsync" --exclude=/invoices --exclude=/confirmations \
+     --exclude=/uploaded_private_documents --exclude=/stornos $B/media/ $H:$D/media/
+   for p in invoices confirmations uploaded_private_documents stornos; do
+     [ -d "$B/media/$p" ] && rsync -a --rsync-path="sudo rsync" "$B/media/$p" "$H:$D/private/"
+   done
+   rsync -a --rsync-path="sudo rsync" $B/sent_emails/ $H:$D/sent_emails/
+   ssh $H "sudo chown -R 1000:1000 $D/media $D/private $D/sent_emails"
    ```
-4. **Switch faraday** (`CUTOVER` in `host_vars/faraday_eventmanager_staging/vars.yml`):
-   `eventmanager_domain: veranstaltungskalender.vfll.de`,
-   `eventmanager_domain_aliases: [faraday.science-and-more.com]`, SMTP
-   backend, Mailgun from the vault, `eventmanager_cron_jobs` with
-   `fetch_emails`. Then restore and deploy in one go:
-   ```sh
-   uv run ansible-playbook -i inventories playbooks/eventmanager/playbook.yml \
-     -l faraday,faraday_eventmanager_staging -e eventmanager_restore_dump=$HOME/Devel/vfll_backups/migration_2026-11/eventmanager_cutover.pgdump
+   Same for staging (`/opt/docker/eventmanager-staging/data`, without
+   `sent_emails`). Check that every file referenced in the database exists:
+   ```python
+   # sudo docker exec -i eventmanager python manage.py shell
+   from invoices.models import Invoice
+   qs = Invoice.objects.exclude(pdf="").exclude(pdf__isnull=True)
+   print(qs.count(), sum(not i.pdf.storage.exists(i.pdf.name) for i in qs))   # missing: 0
    ```
-   plus the media rsync from "Restore a production dump".
-5. **DNS:** point the A record of `veranstaltungskalender.vfll.de` to
-   `37.27.144.199`; wait until `dig +short veranstaltungskalender.vfll.de`
-   shows it.
-6. **TLS:** uncomment the `veranstaltungskalender.vfll.de` entry in
-   `host_vars/faraday/vars.yml`, then
-   `uv run ansible-playbook -i inventories playbooks/eventmanager/playbook.yml -l faraday -t certbot,nginx`.
-7. **Check:** site, admin login, one invoice download (via the app), a test
-   registration mail, `/media/invoices/...` must be 404.
-   `journalctl -t eventmanager-cron` the next morning.
-8. **bohr** keeps showing the maintenance page for clients with an old DNS
-   answer; stop it (`sudo systemctl disable --now gunicornemdev`) once
-   traffic is gone.
+5. Steps 6 and 7.
 
 ## Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
-| `Host key verification failed` | Step 1 not done, or the server was reinstalled (new key: remove the old one with `ssh-keygen -R faraday.science-and-more.com`, then step 1). |
+| `Host key verification failed` | The server was reinstalled → step 1. |
+| `ssh root@bohr...` asks for a password | Typo `.de` instead of `.com`, or the key wasn't put on root in the SCP. |
 | `sudo: a password is required` | Your user isn't in `wheel` yet → step 2 didn't finish; re-run it. |
 | `Permission denied (publickey)` as root after step 3 | Expected: step 3 disables root login. Use `scienceuli`. |
-| `Unable to encrypt nor hash, passlib must be installed` | `uv sync` (passlib is in `pyproject.toml`). |
-| certbot: `Some challenges have failed` | DNS doesn't point to the server yet, or port 80 is blocked (`ufw status`, Hetzner firewall in the Cloud Console). |
-| nginx test: `host not found in upstream "eventmanager-staging"` | The web container isn't running → `sudo docker compose logs web` in `/opt/docker/eventmanager-staging`. |
-| 502 Bad Gateway | `web` is still starting (migrations + collectstatic) or crashed → same logs. |
-| `/static/` gives 404 | collectstatic hasn't run yet (web logs); the nginx container mounts `/opt/docker/eventmanager-staging/data/static` read-only. |
+| setup.yml: restic `Verify file path exists` fails | Fresh server, apps not deployed yet → `--skip-tags restic` (step 3). |
+| compose: `unexpected character "'" in variable name` | A vault value is wrapped in quotes → re-encrypt it without (README, "Configuration"). |
+| `password authentication failed for user "eventmanager"` | The role password in Postgres differs from `POSTGRES_PASSWORD` (only set on the first start against an empty `db-data`). Fix: `sudo docker exec <name>-db sh -c 'psql -U eventmanager -d postgres -v pw="$POSTGRES_PASSWORD" -c "ALTER ROLE eventmanager PASSWORD :'"'"'pw'"'"'"'`. Test over the container IP, not 127.0.0.1 (trusted without password). |
+| certbot: `Some challenges have failed` | DNS doesn't point to bohr yet, or port 80 is blocked (`ufw status`). |
+| 502 Bad Gateway | `web` is still starting (migrations + collectstatic) or crashed → `sudo docker compose logs web` in `/opt/docker/<name>`. |
+| `/static/` gives 404 | collectstatic hasn't run yet (web logs); nginx mounts `/opt/docker/<name>/data/static` read-only. |
+| Invoice download fails | File missing in `data/private/invoices/` (step 5), or owned by root → `chown -R 1000:1000`. |

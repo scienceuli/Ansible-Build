@@ -1,0 +1,106 @@
+---
+# roles/opentalk/defaults/main.yml
+#
+# OpenTalk (opentalk.eu) as docker compose stack, modelled on the official "lite"
+# deployment https://gitlab.opencode.de/opentalk/ot-setup (profile `core`), pinned to
+# release opentalk_release. One instance per opentalk_name; containers <name>-<service>:
+#
+#   <name>-web          web frontend          -> opentalk_domain           (nginx, :80)
+#   <name>-controller   API + signalling      -> opentalk_controller_domain (:11311)
+#   <name>-keycloak     users / OIDC          -> opentalk_accounts_domain  (:8080, /auth)
+#   <name>-livekit      media (SFU)           -> opentalk_livekit_domain   (:7880)
+#                       + published opentalk_livekit_tcp_port/tcp, _udp_port/udp
+#   <name>-db, <name>-keycloak-db (Postgres), <name>-rabbit, <name>-garage (S3),
+#   <name>-autoheal (restarts unhealthy containers of THIS stack only)
+#
+# Differences to ot-setup: config is templated (no .env/sed), LiveKit runs in the
+# bridge network with one multiplexed UDP port (instead of network_mode host + a
+# 20000-40000/udp range), so the host's nginx container reaches it by name and no
+# host-gateway/ufw holes are needed; Garage bucket + key are bootstrapped by the role.
+# Pad (etherpad), whiteboard (spacedeck), recorder, SIP and mailer are not deployed.
+
+# Required, set in host_vars (no sane default):
+#   opentalk_domain        - frontend FQDN, e.g. talk.vfll.de
+#   opentalk_network       - docker network shared with the nginx container
+#   opentalk_postgres_password, opentalk_keycloak_db_password,
+#   opentalk_keycloak_admin_password, opentalk_keycloak_client_secret_controller,
+#   opentalk_keycloak_client_secret_recorder, opentalk_keycloak_client_secret_obelisk,
+#   opentalk_livekit_api_secret, opentalk_signaling_salt, opentalk_service_api_secret,
+#   opentalk_garage_rpc_secret     (64 hex chars),
+#   opentalk_garage_access_key_id  ("GK" + 24 hex chars),
+#   opentalk_garage_secret_key     (64 hex chars)      - all vaulted
+
+opentalk_name: "opentalk"
+opentalk_dir: "/opt/docker/{{ opentalk_name }}"
+
+# Each needs a DNS record pointing to the docker host + an nginx_proxies entry
+opentalk_accounts_domain: "accounts.{{ opentalk_domain }}"
+opentalk_controller_domain: "controller.{{ opentalk_domain }}"
+opentalk_livekit_domain: "livekit.{{ opentalk_domain }}"
+
+opentalk_restart_policy: "unless-stopped"
+
+# --- images (as in ot-setup opentalk_release) ------------------------------------------
+# Upgrading: read the release notes / migration guides in ot-setup's README first
+# (Postgres major upgrades need a dump + restore).
+opentalk_release: "v26.3.1"
+opentalk_registry: "registry.heinlein.group/opentalk"
+opentalk_frontend_image: "{{ opentalk_registry }}/web-frontend:v2.10.2"
+opentalk_controller_image: "{{ opentalk_registry }}/controller:v0.35.4"
+opentalk_livekit_image: "{{ opentalk_registry }}/livekit-server:v1.13.10"
+opentalk_keycloak_image: "{{ opentalk_registry }}/keycloak:26.8.1-1"
+opentalk_postgres_image: "{{ opentalk_registry }}/postgres:18.6"
+opentalk_rabbitmq_image: "{{ opentalk_registry }}/rabbitmq:4.3.7"
+opentalk_garage_image: "{{ opentalk_registry }}/garage:2.5.0"
+opentalk_autoheal_image: "{{ opentalk_registry }}/autoheal:latest"
+
+# OpenTalk login/account theme referenced by the realm (loginTheme: opentalk)
+opentalk_keycloak_theme_url: "https://gitlab.opencode.de/opentalk/ot-setup/-/raw/{{ opentalk_release }}/data/kc_provider/keycloak-ot-theme.jar"
+opentalk_keycloak_theme_checksum: "sha256:a877d070d0357afc04d3e6c51cb8e25f8969fa8e8f036e7ddb7283e2ab0d38bd"
+
+# --- Keycloak ---------------------------------------------------------------------------
+opentalk_keycloak_realm: "opentalk"
+opentalk_keycloak_realm_displayname: "OpenTalk"
+opentalk_keycloak_admin: "admin"
+# demo user "testuser" of the realm import (disabled)
+opentalk_keycloak_testuser_enable: false
+# Keycloak's JVM takes 70 % of the host RAM by default; cap it on small hosts
+opentalk_keycloak_mem_limit: "1g"
+opentalk_keycloak_java_heap: "-XX:MaxRAMPercentage=50 -XX:InitialRAMPercentage=25"
+
+# --- databases --------------------------------------------------------------------------
+opentalk_postgres_db: "opentalk"
+opentalk_postgres_user: "ot"
+opentalk_keycloak_db_user: "kc"
+
+# --- LiveKit ----------------------------------------------------------------------------
+opentalk_livekit_api_key: "controller"
+# Published on the host (open them in a cloud firewall, if any). All WebRTC UDP
+# traffic is multiplexed on the one UDP port; TCP is the fallback for clients
+# without UDP.
+opentalk_livekit_tcp_port: 7881
+opentalk_livekit_udp_port: 7882
+# public IPv4 announced in ICE candidates; empty = discovered via STUN
+opentalk_livekit_node_ip: ""
+opentalk_livekit_log_level: "info"
+
+# --- Garage (S3 storage for the controller: assets, reports) --------------------------
+opentalk_garage_bucket: "opentalk"
+opentalk_garage_zone: "dc1"
+opentalk_garage_capacity: "20G"
+
+# --- frontend / controller --------------------------------------------------------------
+opentalk_default_language: "de-DE"
+opentalk_timezone: "Europe/Berlin"
+opentalk_imprint_url: ""
+opentalk_data_protection_url: ""
+opentalk_helpdesk_url: ""
+opentalk_error_report_address: ""
+opentalk_max_video_bitrate: 1500000
+opentalk_max_screen_bitrate: 8000000
+opentalk_e2ee: true
+# need services this role doesn't deploy (spacedeck/excalidraw, etherpad, recorder)
+opentalk_feature_whiteboard: false
+opentalk_feature_protocol: false
+opentalk_feature_recording: false
+opentalk_controller_log: "info"

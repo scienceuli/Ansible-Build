@@ -1,18 +1,16 @@
 ---
-# VFLL Wagtail CMS, as a docker compose stack, on two hosts with different
-# topologies (role defaults/host_vars pick the right one per host):
-#   bohr  (production): host nginx + host Postgres - deploy only.
-#   hertz (staging):    containerized nginx (nginx_proxies) + containerized,
-#                        seeded Postgres - deploy, then also run
-#                        playbooks/proxy.yml -l hertz to pick up the new
-#                        nginx_proxies entry (nginx -t resolves the
-#                        upstream, so vfllcms-web must already be running).
-#
-#   uv run ansible-playbook -i inventories playbooks/vfllcms/playbook.yml -l bohr
-#   uv run ansible-playbook -i inventories playbooks/vfllcms/playbook.yml -l hertz
-#   uv run ansible-playbook -i inventories playbooks/proxy.yml -l hertz
-- name: Docker + shared network
-  hosts: vfllcms
+# VFLL Wagtail CMS as docker compose stacks, one inventory host per instance
+# (vfllcms_name), see README.md:
+#   bohr_vfllcms, bohr_vfllcms_staging on the docker host bohr
+# Limit to the instance(s) + their docker host, e.g.
+#   uv run ansible-playbook -i inventories playbooks/vfllcms/playbook.yml -l bohr,bohr_vfllcms,bohr_vfllcms_staging
+#   uv run ansible-playbook -i inventories playbooks/vfllcms/playbook.yml -l bohr,bohr_vfllcms \
+#     -e vfllcms_restore_dump=~/Backups/bohr-native-<ts>/vfllcms.pgdump
+# Order matters: the network must exist before the compose stack joins it,
+# and the data dirs before nginx bind-mounts them (nginx_resolver is set, so
+# a missing upstream only gives a 502).
+- name: Docker + shared network on the docker hosts
+  hosts: vfllcms_docker_hosts
   roles:
     - docker_network
 
@@ -21,3 +19,13 @@
   become: true
   roles:
     - vfllcms
+
+- name: Reverse proxy + TLS on the docker hosts (nginx_proxies in host_vars/<host>)
+  hosts: vfllcms_docker_hosts
+  roles:
+    - role: htpasswd
+      tags: htpasswd
+    - role: certbot
+      tags: certbot
+    - role: nginx
+      tags: nginx

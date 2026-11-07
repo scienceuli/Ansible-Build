@@ -1,0 +1,23 @@
+---
+# OpenTalk (roles/opentalk). See README.md.
+# Limit to one instance + its docker host, e.g. -l lovelace,lovelace_opentalk
+# Order: the network must exist before the compose stack joins it; the nginx vhosts
+# come last (nginx_resolver on the host, so nginx -t doesn't need the containers).
+- name: Docker + shared network on the docker hosts
+  hosts: opentalk_docker_hosts
+  roles:
+    - docker_network
+
+- name: Deploy OpenTalk
+  hosts: opentalk
+  become: true
+  roles:
+    - opentalk
+
+- name: Reverse proxy + TLS on the docker hosts (nginx_proxies in host_vars/<host>)
+  hosts: opentalk_docker_hosts
+  roles:
+    - role: certbot
+      tags: certbot
+    - role: nginx
+      tags: nginx

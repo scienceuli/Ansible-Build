@@ -1,0 +1,109 @@
+---
+# roles/opentalk/tasks/main.yml
+
+- name: Ensure required variables are set
+  ansible.builtin.assert:
+    that:
+      - opentalk_domain is defined
+      - opentalk_network is defined
+      - opentalk_postgres_password is defined
+      - opentalk_keycloak_db_password is defined
+      - opentalk_keycloak_admin_password is defined
+      - opentalk_keycloak_client_secret_controller is defined
+      - opentalk_keycloak_client_secret_recorder is defined
+      - opentalk_keycloak_client_secret_obelisk is defined
+      - opentalk_livekit_api_secret is defined
+      - opentalk_signaling_salt is defined
+      - opentalk_service_api_secret is defined
+      - opentalk_garage_rpc_secret is regex('^[0-9a-f]{64}$')
+      - opentalk_garage_access_key_id is regex('^GK[0-9a-f]{24}$')
+      - opentalk_garage_secret_key is regex('^[0-9a-f]{64}$')
+    fail_msg: >
+      opentalk_domain, opentalk_network and the secrets (vault) must be set, see
+      roles/opentalk/defaults/main.yml; Garage: rpc secret + secret key 64 hex chars,
+      access key id "GK" + 24 hex chars.
+    quiet: true
+
+- name: Ensure directories exist
+  ansible.builtin.file:
+    path: "{{ opentalk_dir }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - ""
+    - config
+    - keycloak/data/import
+    - keycloak/providers
+    - garage/meta
+    - garage/data
+
+# --- config -----------------------------------------------------------------------------
+- name: Deploy docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ opentalk_dir }}/docker-compose.yml"
+    mode: "0600"          # contains DB/Keycloak passwords
+
+# the controller runs as uid 1000
+- name: Deploy controller.toml
+  ansible.builtin.template:
+    src: controller.toml.j2
+    dest: "{{ opentalk_dir }}/config/controller.toml"
+    owner: "1000"
+    group: "1000"
+    mode: "0600"
+  notify: Restart opentalk controller
+
+- name: Deploy livekit.yaml
+  ansible.builtin.template:
+    src: livekit.yaml.j2
+    dest: "{{ opentalk_dir }}/config/livekit.yaml"
+    mode: "0600"
+  notify: Restart opentalk livekit
+
+- name: Deploy garage.toml
+  ansible.builtin.template:
+    src: garage.toml.j2
+    dest: "{{ opentalk_dir }}/config/garage.toml"
+    mode: "0600"
+  notify: Restart opentalk garage
+
+# Imported on Keycloak start only if the realm doesn't exist yet (--import-realm);
+# later changes are made in the Keycloak admin console, not here.
+- name: Deploy Keycloak realm import (placeholders filled from Keycloak's environment)
+  ansible.builtin.copy:
+    src: keycloak-realm-opentalk.json
+    dest: "{{ opentalk_dir }}/keycloak/data/import/opentalk-realm.json"
+    mode: "0644"
+
+- name: Download OpenTalk Keycloak theme
+  ansible.builtin.get_url:
+    url: "{{ opentalk_keycloak_theme_url }}"
+    dest: "{{ opentalk_dir }}/keycloak/providers/keycloak-ot-theme.jar"
+    checksum: "{{ opentalk_keycloak_theme_checksum }}"
+    mode: "0644"
+
+# --- containers -------------------------------------------------------------------------
+- name: Start OpenTalk ({{ opentalk_name }}) via docker compose
+  community.docker.docker_compose_v2:
+    project_src: "{{ opentalk_dir }}"
+    state: present
+    pull: missing
+    wait: false
+
+- name: Bootstrap Garage (layout, bucket, access key)
+  ansible.builtin.include_tasks: garage.yml
+
+# Realm import + first build take a while on a small host
+- name: Wait until Keycloak is healthy
+  ansible.builtin.command:
+    cmd: docker inspect -f '{{ '{{' }}.State.Health.Status{{ '}}' }}' {{ opentalk_name }}-keycloak
+  register: opentalk_keycloak_health
+  retries: 40
+  delay: 10
+  until: opentalk_keycloak_health.stdout == 'healthy'
+  changed_when: false
+
+# Note: the controller fetches the OIDC config via the public accounts URL, i.e.
+# through the host's nginx. On the very first run (nginx vhosts not there yet) it
+# restarts until the proxy play below has run.

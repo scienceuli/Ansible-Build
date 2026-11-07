@@ -1,9 +1,11 @@
 {{ ansible_managed | comment }}
+name: "{{ vfllcms_name }}"
+
 services:
 {% if vfllcms_db_containerized %}
   db:
     image: "{{ vfllcms_db_image }}"
-    container_name: "vfllcms-db"
+    container_name: "{{ vfllcms_name }}-db"
     restart: "{{ vfllcms_restart_policy }}"
     environment:
       POSTGRES_DB: "{{ vfllcms_db_name }}"
@@ -25,8 +27,8 @@ services:
 {% endif %}
   web:
     build: ./src
-    image: "vfllcms:latest"
-    container_name: "vfllcms-web"
+    image: "{{ vfllcms_name }}:latest"
+    container_name: "{{ vfllcms_name }}-web"
     restart: "{{ vfllcms_restart_policy }}"
     command: ["uv", "run", "gunicorn", "rocketman.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "{{ vfllcms_gunicorn_workers }}", "--access-logfile", "-"]
     env_file: .env
@@ -42,7 +44,7 @@ services:
       - "host.docker.internal:host-gateway"
 {% endif %}
 {% if vfllcms_nginx_containerized %}
-    # Reached by the nginx container as vfllcms-web:8000
+    # Reached by the nginx container as {{ vfllcms_name }}-web:8000
     networks:
       - default
       - proxy

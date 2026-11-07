@@ -9,7 +9,7 @@
 # bind-mounted data dir.
 
 # Required, set in host_vars (no sane default):
-#   eventmanager_domain       - public FQDN, e.g. faraday.science-and-more.com
+#   eventmanager_domain       - public FQDN, e.g. veranstaltungskalender.vfll.de
 #   eventmanager_network      - docker network shared with the nginx container
 #                               (the docker host's docker_network_name)
 #   eventmanager_secret_key   - Django SECRET_KEY (vault it)
@@ -45,6 +45,12 @@ eventmanager_db_user: "eventmanager"
 # eventmanager_restore_dump: ""
 
 eventmanager_mjml_image: "liminspace/mjml-tcpserver:1.4"
+
+# true: the "mailqueue" service sends queued mails every 60 s
+# (manage.py send_queued_messages). false: no such service - mails stay in
+# the queue until an admin sends them (django-mail-queue admin), as on the
+# old native bohr. Switching to false removes the container (remove_orphans).
+eventmanager_mailqueue_autosend: true
 
 eventmanager_debug: false
 eventmanager_use_2fa: false

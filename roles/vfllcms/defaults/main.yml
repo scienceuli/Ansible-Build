@@ -3,14 +3,14 @@
 #
 # VFLL Wagtail CMS (Django) as a docker compose stack: web (gunicorn) plus,
 # only where the host has no Postgres of its own (vfllcms_db_containerized),
-# its own Postgres container. Two topologies in use:
-#   bohr (production): nginx and Postgres stay on the host, un-dockerized -
-#     web just publishes a host port (vfllcms_port) for host nginx to proxy
-#     to, and talks to the host's Postgres over host.docker.internal.
-#   hertz (staging): nginx is already a container there (nginx_proxies),
-#     and there's no host Postgres (only MariaDB, for other apps) - web
-#     joins the shared docker network, and gets its own containerized,
-#     backup-seeded Postgres.
+# its own Postgres container. Two topologies:
+#   containerized (bohr, both instances): the nginx container proxies to
+#     <vfllcms_name>-web over the shared docker network
+#     (vfllcms_nginx_containerized), and the db is a container too
+#     (vfllcms_db_containerized). See playbooks/vfllcms/README.md.
+#   host-managed (role defaults, used by the native bohr until 2026-11): web
+#     publishes a host port (vfllcms_port) for a host nginx and talks to the
+#     host's Postgres over host.docker.internal.
 
 # Required, set in host_vars (no sane default):
 #   vfllcms_domain         - public FQDN, e.g. vfll.de or staging.vfll.de
@@ -25,7 +25,12 @@ vfllcms_git_version: "main"
 #   vfllcms_git_repo: "git@github.com:scienceuli/vfllcms.git"
 #   vfllcms_git_key_file: /root/.ssh/vfllcms_deploy_key
 
-vfllcms_compose_dir: "/opt/docker/vfllcms"
+# Instance name, so several instances can share a host (bohr: production
+# "vfllcms" and "vfllcms-staging"): compose project, image and directory;
+# containers <name>-web (= nginx dest_hostname) and <name>-db.
+vfllcms_name: "vfllcms"
+
+vfllcms_compose_dir: "/opt/docker/{{ vfllcms_name }}"
 vfllcms_src_dir: "{{ vfllcms_compose_dir }}/src"
 # Mounted at /data: static/, media/
 vfllcms_data_dir: "{{ vfllcms_compose_dir }}/data"
@@ -37,7 +42,7 @@ vfllcms_restart_policy: "unless-stopped"
 vfllcms_gunicorn_workers: 3
 
 # Database: host Postgres (bohr) by default. Set vfllcms_db_containerized:
-# true (hertz) to get a dedicated db: service instead - DATABASE_URL then
+# true (bohr) to get a dedicated db: service instead - DATABASE_URL then
 # points at that container ("db"), not vfllcms_db_host.
 vfllcms_db_containerized: false
 vfllcms_db_image: "postgres:16-alpine"
@@ -56,8 +61,8 @@ vfllcms_db_seed_dump: ""
 # (pg_dump -Fc). See roles/compose_pg_restore.
 # vfllcms_restore_dump: ""
 
-# nginx: host-managed (bohr, manual proxy_pass - not templated here) by
-# default. Set vfllcms_nginx_containerized: true (hertz) to join the shared
+# nginx: host-managed (manual proxy_pass - not templated here) by
+# default. Set vfllcms_nginx_containerized: true (bohr) to join the shared
 # docker network instead of publishing a host port.
 vfllcms_nginx_containerized: false
 vfllcms_network: ""
@@ -89,6 +94,12 @@ vfllcms_member_admin_url: ""
 vfllcms_member_admin_user: ""
 vfllcms_member_admin_secret: ""
 vfllcms_google_credentials: "{}"
+
+# Periodic management commands, run on the docker host via
+# `docker exec <vfllcms_name>-web uv run manage.py <command>` (replaces the
+# old bohr crontab's get_events.sh / get_blog.sh), e.g.
+#   - { name: get_events, command: get_events, minute: "0", hour: "6" }
+vfllcms_cron_jobs: []
 
 # Any further env vars for rocketman.settings.container_settings
 vfllcms_extra_env: {}

@@ -1,0 +1,197 @@
+{{ ansible_managed | comment }}
+# OpenTalk {{ opentalk_release }} (ot-setup "core"), see roles/opentalk/defaults/main.yml
+name: "{{ opentalk_name }}"
+
+x-autoheal: &autoheal
+  labels:
+    {{ opentalk_name }}.autoheal: "true"
+
+services:
+  web:
+    image: "{{ opentalk_frontend_image }}"
+    container_name: "{{ opentalk_name }}-web"
+    restart: "{{ opentalk_restart_policy }}"
+    environment:
+      CONTROLLER_HOST: "{{ opentalk_controller_domain }}"
+      BASE_URL: "https://{{ opentalk_domain }}"
+      PORT: "80"
+      OIDC_ISSUER: "https://{{ opentalk_accounts_domain }}/auth/realms/{{ opentalk_keycloak_realm }}"
+      OIDC_CLIENT_ID: "OtFrontend"
+      LIVEKIT_SERVER_URL: "https://{{ opentalk_livekit_domain }}/"
+      LIVEKIT_PREFERRED_VIDEO_CODEC: "vp9"
+      CHANGE_PASSWORD_URL: "https://{{ opentalk_accounts_domain }}/auth/realms/{{ opentalk_keycloak_realm }}/account/"
+      ERROR_REPORT_ADDRESS: "{{ opentalk_error_report_address }}"
+      LIBRAVATAR_DEFAULT_IMAGE: "identicon"
+      MAX_GRID_TILES: "24"
+      IS_BETA_RELEASE: "false"
+      FEATURE_USER_SEARCH: "true"
+      FEATURE_TIMER: "true"
+      FEATURE_WHITEBOARD: "{{ opentalk_feature_whiteboard | string | lower }}"
+      FEATURE_PROTOCOL: "{{ opentalk_feature_protocol | string | lower }}"
+      FEATURE_RECORDING: "{{ opentalk_feature_recording | string | lower }}"
+      FEATURE_E2E_ENCRYPTION: "{{ opentalk_e2ee | string | lower }}"
+      WAITING_ROOM_DEFAULT_VALUE: "false"
+      HELPDESK_URL: "{{ opentalk_helpdesk_url }}"
+      IMPRINT_URL: "{{ opentalk_imprint_url }}"
+      DATA_PROTECTION_URL: "{{ opentalk_data_protection_url }}"
+      SPACEDECK_ENABLED: "false"
+      PRODUCT_VERSION: "{{ opentalk_release }}"
+    # reached by the nginx container as {{ opentalk_name }}-web:80; no published port
+    networks: [default, proxy]
+
+  controller:
+    image: "{{ opentalk_controller_image }}"
+    container_name: "{{ opentalk_name }}-controller"
+    restart: "{{ opentalk_restart_policy }}"
+    environment:
+      RUST_LOG: "{{ opentalk_controller_log }}"
+      TZ: "{{ opentalk_timezone }}"
+    volumes:
+      - "{{ opentalk_dir }}/config/controller.toml:/controller/controller.toml:ro"
+    # nginx: {{ opentalk_name }}-controller:11311
+    networks: [default, proxy]
+    depends_on:
+      postgres:
+        condition: service_started
+      rabbit:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+
+  livekit:
+    image: "{{ opentalk_livekit_image }}"
+    container_name: "{{ opentalk_name }}-livekit"
+    restart: "{{ opentalk_restart_policy }}"
+    entrypoint: ["/livekit-server"]
+    command: ["--config", "/etc/livekit.yaml"]
+    volumes:
+      - "{{ opentalk_dir }}/config/livekit.yaml:/etc/livekit.yaml:ro"
+    # signalling via nginx ({{ opentalk_name }}-livekit:7880), media directly
+    ports:
+      - "{{ opentalk_livekit_tcp_port }}:{{ opentalk_livekit_tcp_port }}/tcp"
+      - "{{ opentalk_livekit_udp_port }}:{{ opentalk_livekit_udp_port }}/udp"
+    networks: [default, proxy]
+
+  keycloak:
+    <<: *autoheal
+    image: "{{ opentalk_keycloak_image }}"
+    container_name: "{{ opentalk_name }}-keycloak"
+    restart: "{{ opentalk_restart_policy }}"
+    mem_limit: "{{ opentalk_keycloak_mem_limit }}"
+    environment:
+      JAVA_OPTS_KC_HEAP: "{{ opentalk_keycloak_java_heap }}"
+      KC_BOOTSTRAP_ADMIN_USERNAME: "{{ opentalk_keycloak_admin }}"
+      KC_BOOTSTRAP_ADMIN_PASSWORD: {{ opentalk_keycloak_admin_password | replace('$', '$$') | to_json }}
+      # placeholders of the realm import (data/import/opentalk-realm.json)
+      KC_REALM_ID: "{{ opentalk_keycloak_realm }}"
+      KC_REALM_NAME: "{{ opentalk_keycloak_realm }}"
+      KC_REALM_DISPLAYNAME: "{{ opentalk_keycloak_realm_displayname }}"
+      KEYCLOAK_CLIENT_SECRET_CONTROLLER: {{ opentalk_keycloak_client_secret_controller | replace('$', '$$') | to_json }}
+      KEYCLOAK_CLIENT_SECRET_OBELISK: {{ opentalk_keycloak_client_secret_obelisk | replace('$', '$$') | to_json }}
+      KEYCLOAK_CLIENT_SECRET_RECORDER: {{ opentalk_keycloak_client_secret_recorder | replace('$', '$$') | to_json }}
+      KC_DOMAIN: "{{ opentalk_domain }}"
+      CONTROLLER_DOMAIN: "{{ opentalk_controller_domain }}"
+      KC_TESTUSER_ENABLE: "{{ opentalk_keycloak_testuser_enable | string | lower }}"
+      # bare hostname: also the realm's WebAuthn RP ID; scheme from X-Forwarded-Proto
+      KC_HOSTNAME: "{{ opentalk_accounts_domain }}"
+      KC_HTTP_RELATIVE_PATH: "/auth"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: "xforwarded"
+      KC_DB: "postgres"
+      KC_DB_URL: "jdbc:postgresql://keycloak-db:5432/keycloak"
+      KC_DB_USERNAME: "{{ opentalk_keycloak_db_user }}"
+      KC_DB_PASSWORD: {{ opentalk_keycloak_db_password | replace('$', '$$') | to_json }}
+    entrypoint: []
+    # --import-realm skips realms that already exist
+    command:
+      - /bin/sh
+      - -c
+      - |
+          /opt/keycloak/bin/kc.sh build --health-enabled=true --metrics-enabled=true
+          /opt/keycloak/bin/kc.sh start --import-realm --optimized
+    user: "0:0"
+    volumes:
+      - "{{ opentalk_dir }}/keycloak/data:/opt/keycloak/data"
+      - "{{ opentalk_dir }}/keycloak/providers:/opt/keycloak/providers"
+    # nginx: {{ opentalk_name }}-keycloak:8080
+    networks: [default, proxy]
+    depends_on:
+      - keycloak-db
+    healthcheck:
+      start_period: 120s
+      retries: 10
+      timeout: 5s
+      interval: 30s
+      test:
+        - "CMD-SHELL"
+        - |
+          exec 3<>/dev/tcp/localhost/9000 &&
+          echo -e 'GET /auth/health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          cat <&3 | grep -q '200 OK'
+
+  postgres:
+    image: "{{ opentalk_postgres_image }}"
+    container_name: "{{ opentalk_name }}-db"
+    restart: "{{ opentalk_restart_policy }}"
+    environment:
+      POSTGRES_DB: "{{ opentalk_postgres_db }}"
+      POSTGRES_USER: "{{ opentalk_postgres_user }}"
+      POSTGRES_PASSWORD: {{ opentalk_postgres_password | replace('$', '$$') | to_json }}
+    volumes:
+      - "{{ opentalk_dir }}/db:/var/lib/postgresql"
+
+  keycloak-db:
+    image: "{{ opentalk_postgres_image }}"
+    container_name: "{{ opentalk_name }}-keycloak-db"
+    restart: "{{ opentalk_restart_policy }}"
+    environment:
+      POSTGRES_DB: "keycloak"
+      POSTGRES_USER: "{{ opentalk_keycloak_db_user }}"
+      POSTGRES_PASSWORD: {{ opentalk_keycloak_db_password | replace('$', '$$') | to_json }}
+    volumes:
+      - "{{ opentalk_dir }}/keycloak-db:/var/lib/postgresql"
+
+  rabbit:
+    <<: *autoheal
+    image: "{{ opentalk_rabbitmq_image }}"
+    container_name: "{{ opentalk_name }}-rabbit"
+    restart: "{{ opentalk_restart_policy }}"
+    environment:
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit consumer_timeout 30000"
+    healthcheck:
+      test: rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms
+      interval: 30s
+      timeout: 60s
+      retries: 5
+
+  garage:
+    <<: *autoheal
+    image: "{{ opentalk_garage_image }}"
+    container_name: "{{ opentalk_name }}-garage"
+    restart: "{{ opentalk_restart_policy }}"
+    command: ["/garage", "server"]
+    volumes:
+      - "{{ opentalk_dir }}/garage/meta:/var/lib/garage/meta"
+      - "{{ opentalk_dir }}/garage/data:/var/lib/garage/data"
+      - "{{ opentalk_dir }}/config/garage.toml:/etc/garage.toml:ro"
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 30s
+      timeout: 60s
+      retries: 3
+
+  # Restarts unhealthy containers carrying the label below - only this stack's,
+  # not the other containers on the host
+  autoheal:
+    image: "{{ opentalk_autoheal_image }}"
+    container_name: "{{ opentalk_name }}-autoheal"
+    restart: "{{ opentalk_restart_policy }}"
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: "{{ opentalk_name }}.autoheal"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+networks:
+  proxy:
+    name: "{{ opentalk_network }}"
+    external: true

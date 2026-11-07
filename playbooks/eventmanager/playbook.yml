@@ -1,9 +1,12 @@
 ---
+# One inventory host per instance (eventmanager_name) plus its docker host
+# (bohr). Limit to both, e.g.
+#   uv run ansible-playbook -i inventories playbooks/eventmanager/playbook.yml -l bohr,bohr_eventmanager
 # Order matters: the network must exist before the compose stack joins it,
 # and the web container (eventmanager_name) should run before nginx starts;
-# faraday has nginx_resolver, so a missing upstream only gives a 502.
-- name: Docker + shared network on faraday
-  hosts: faraday
+# the docker hosts have nginx_resolver, so a missing upstream only gives a 502.
+- name: Docker + shared network on the docker hosts
+  hosts: eventmanager_docker_hosts
   roles:
     - docker_network
 
@@ -13,8 +16,8 @@
   roles:
     - eventmanager
 
-- name: Reverse proxy + TLS on faraday (nginx_proxies in host_vars/faraday)
-  hosts: faraday
+- name: Reverse proxy + TLS on the docker hosts (nginx_proxies in host_vars/<host>)
+  hosts: eventmanager_docker_hosts
   roles:
     - role: htpasswd
       tags: htpasswd

@@ -1,0 +1,18 @@
+---
+- name: Restart opentalk controller
+  community.docker.docker_compose_v2:
+    project_src: "{{ opentalk_dir }}"
+    services: [controller]
+    state: restarted
+
+- name: Restart opentalk livekit
+  community.docker.docker_compose_v2:
+    project_src: "{{ opentalk_dir }}"
+    services: [livekit]
+    state: restarted
+
+- name: Restart opentalk garage
+  community.docker.docker_compose_v2:
+    project_src: "{{ opentalk_dir }}"
+    services: [garage]
+    state: restarted

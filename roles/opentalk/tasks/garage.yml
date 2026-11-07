@@ -1,0 +1,89 @@
+---
+# roles/opentalk/tasks/garage.yml - single-node Garage: layout, bucket, the controller's
+# key (imported with the vaulted id/secret, so the vault stays the source of truth).
+# Manual steps of ot-setup's README "Set Up Garage", made idempotent.
+
+- name: Wait until Garage answers
+  ansible.builtin.command:
+    cmd: docker exec {{ opentalk_name }}-garage /garage status
+  register: opentalk_garage_status
+  retries: 20
+  delay: 3
+  until: opentalk_garage_status.rc == 0
+  changed_when: false
+
+- name: Read Garage cluster layout
+  ansible.builtin.command:
+    cmd: docker exec {{ opentalk_name }}-garage /garage layout show
+  register: opentalk_garage_layout
+  changed_when: false
+
+# Fresh node: `garage status` shows "NO ROLE ASSIGNED" (no backslash regex here -
+# Jinja string literals eat escapes like \b)
+- name: Assign + apply the layout of the (only) node
+  when: opentalk_garage_status.stdout is search('NO ROLE ASSIGNED')
+  block:
+    - name: Read Garage node id
+      ansible.builtin.command:
+        cmd: docker exec {{ opentalk_name }}-garage /garage node id -q
+      register: opentalk_garage_node_id
+      changed_when: false
+
+    - name: Assign zone + capacity to the node
+      ansible.builtin.command:
+        cmd: >-
+          docker exec {{ opentalk_name }}-garage /garage layout assign
+          -z {{ opentalk_garage_zone }} -c {{ opentalk_garage_capacity }}
+          {{ opentalk_garage_node_id.stdout.split('@')[0] }}
+      changed_when: true
+
+    # must be exactly current version + 1
+    - name: Apply the staged layout
+      ansible.builtin.command:
+        cmd: >-
+          docker exec {{ opentalk_name }}-garage /garage layout apply --version
+          {{ (opentalk_garage_layout.stdout | regex_findall('layout version: ([0-9]+)') | first | int) + 1 }}
+      changed_when: true
+
+- name: Check bucket {{ opentalk_garage_bucket }}
+  ansible.builtin.command:
+    cmd: docker exec {{ opentalk_name }}-garage /garage bucket info {{ opentalk_garage_bucket }}
+  register: opentalk_garage_bucket_info
+  failed_when: false
+  changed_when: false
+
+- name: Create bucket {{ opentalk_garage_bucket }}
+  ansible.builtin.command:
+    cmd: docker exec {{ opentalk_name }}-garage /garage bucket create {{ opentalk_garage_bucket }}
+  when: opentalk_garage_bucket_info.rc != 0
+  register: opentalk_garage_bucket_create
+  # "Layout not ready" for a moment right after the apply
+  retries: 10
+  delay: 3
+  until: opentalk_garage_bucket_create.rc == 0
+  changed_when: true
+
+- name: Check controller access key
+  ansible.builtin.command:
+    cmd: docker exec {{ opentalk_name }}-garage /garage key info {{ opentalk_garage_access_key_id }}
+  register: opentalk_garage_key_info
+  failed_when: false
+  changed_when: false
+
+- name: Import controller access key
+  ansible.builtin.command:
+    cmd: >-
+      docker exec {{ opentalk_name }}-garage /garage key import --yes -n {{ opentalk_name }}-controller
+      {{ opentalk_garage_access_key_id }} {{ opentalk_garage_secret_key }}
+  when: opentalk_garage_key_info.rc != 0
+  no_log: true
+  changed_when: true
+  notify: Restart opentalk controller
+
+# idempotent, so always (also repairs a run that failed after the import)
+- name: Allow the key on the bucket
+  ansible.builtin.command:
+    cmd: >-
+      docker exec {{ opentalk_name }}-garage /garage bucket allow --read --write --owner
+      {{ opentalk_garage_bucket }} --key {{ opentalk_garage_access_key_id }}
+  changed_when: false

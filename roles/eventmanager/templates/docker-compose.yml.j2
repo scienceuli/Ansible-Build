@@ -43,6 +43,7 @@ services:
       mjml:
         condition: service_started
 
+{% if eventmanager_mailqueue_autosend %}
   mailqueue:
     image: "{{ eventmanager_name }}:latest"
     pull_policy: never    # built locally by the web service
@@ -54,6 +55,7 @@ services:
       - "{{ eventmanager_data_dir }}:/data"
     depends_on:
       - web
+{% endif %}
 
 networks:
   proxy:
