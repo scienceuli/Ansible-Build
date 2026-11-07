@@ -8,7 +8,7 @@ Two inventory hosts point at the same server:
 | Inventory host | What it's for | Vars |
 |---|---|---|
 | `faraday` | the server: users, packages, firewall, Docker, nginx + certbot containers | `inventories/host_vars/faraday/vars.yml`, `group_vars/setup`, `group_vars/debian13.yml` |
-| `faraday_eventmanager` | the app: compose stack in `/opt/docker/eventmanager` | `inventories/host_vars/faraday_eventmanager/` |
+| `faraday_eventmanager_staging` | the app: compose stack in `/opt/docker/eventmanager-staging` | `inventories/host_vars/faraday_eventmanager_staging/` |
 
 Run every command **from the repo root** (`~/Devel/Ansible-Build`), so
 `ansible.cfg` and `.vault-pass` are found, and always with `-l faraday`
@@ -20,11 +20,11 @@ group, which also contains `localhost`.
 - `faraday.science-and-more.com` resolves to the server
   (`dig +short faraday.science-and-more.com` → `37.27.144.19`).
 - Hetzner put your SSH key on `root` (chosen when creating the server).
-- Secrets in `inventories/host_vars/faraday_eventmanager/vault.yml`:
+- Secrets in `inventories/host_vars/faraday_eventmanager_staging/vault.yml`:
   `vault_eventmanager_secret_key`, `vault_eventmanager_encrypt_key`,
   `vault_eventmanager_db_password`. Keep `$` out of them (compose interpolates it).
 - Ansible collections: `uv run ansible-galaxy collection install -r playbooks/eventmanager/requirements.yml`
-- Optional: add `ansible_user: scienceuli` to `faraday_eventmanager` in
+- Optional: add `ansible_user: scienceuli` to `faraday_eventmanager_staging` in
   `inventories/hosts.yml` - without it Ansible connects with your local
   username (which happens to be the same).
 
@@ -98,27 +98,28 @@ task play -i inventories playbooks/eventmanager/playbook.yml
 Three plays, in this order:
 
 1. `faraday`: Docker + network (no-op after step 3).
-2. `faraday_eventmanager`: clones the repo, builds the image, starts
+2. `faraday_eventmanager_staging`: clones the repo, builds the image, starts
    `db`, `mjml`, `web`, `mailqueue`. The first build takes a few minutes.
 3. `faraday`: certbot issues the Let's Encrypt certificate (port 80 must be
    reachable and DNS correct), then nginx starts with TLS and proxies to
-   `eventmanager-web:8000`.
+   `eventmanager-staging:8000`.
 
 ## 5. Check it
 
 ```sh
-curl -I https://faraday.science-and-more.com          # 200/302 from Django
-curl -I http://faraday.science-and-more.com           # 301 → https
+curl -I https://staging.veranstaltungskalender.vfll.de                  # 401 (basic auth)
+curl -I -u vfll:<password> https://staging.veranstaltungskalender.vfll.de   # 200/302 from Django
+curl -I http://staging.veranstaltungskalender.vfll.de                   # 301 → https
 task connect-host faraday
-  docker ps                                            # nginx01, eventmanager-web/-db/-mjml/-mailqueue
-  cd /opt/docker/eventmanager && sudo docker compose logs -f web
+  docker ps                                            # nginx01, eventmanager-staging/-db/-mjml/-mailqueue
+  cd /opt/docker/eventmanager-staging && sudo docker compose logs -f web
 ```
 
 ## 6. First run on a fresh database
 
 ```sh
 ssh -t scienceuli@faraday.science-and-more.com \
-  "sudo docker exec -it eventmanager-web python manage.py createsuperuser"
+  "sudo docker exec -it eventmanager-staging python manage.py createsuperuser"
 ```
 
 **Required:** the user groups. Templates check membership with the
@@ -127,10 +128,10 @@ ssh -t scienceuli@faraday.science-and-more.com \
 
 ```sh
 ssh -t scienceuli@faraday.science-and-more.com \
-  "sudo docker exec eventmanager-web python manage.py loaddata data/initial_groups.json data/initial_email_templates.json"
+  "sudo docker exec eventmanager-staging python manage.py loaddata data/initial_groups.json data/initial_email_templates.json"
 # "newsletter" is used in templates but missing from initial_groups.json:
 ssh -t scienceuli@faraday.science-and-more.com \
-  "sudo docker exec eventmanager-web python manage.py shell -c \"from django.contrib.auth.models import Group; Group.objects.get_or_create(name='newsletter')\""
+  "sudo docker exec eventmanager-staging python manage.py shell -c \"from django.contrib.auth.models import Group; Group.objects.get_or_create(name='newsletter')\""
 ```
 
 Then set the `Site` domain - see
@@ -140,7 +141,7 @@ Then set the `Site` domain - see
 
 - **New app version:** push to `main` of the eventmanager repo, then re-run step 4.
 - **Only proxy config changed** (`host_vars/faraday/vars.yml`):
-  `uv run ansible-playbook -i inventories playbooks/eventmanager/playbook.yml -t nginx`
+  `task plays -i inventories playbooks/eventmanager/playbook.yml -t nginx`
 - **Server baseline changed:** re-run step 3.
 
 ## Restore a production dump
@@ -150,8 +151,8 @@ Replaces the database with a `pg_dump -Fc` file from your Mac (role
 in one transaction, starts the app, which migrates):
 
 ```sh
-uv run ansible-playbook -i inventories playbooks/eventmanager/playbook.yml \
-  -l faraday,faraday_eventmanager -e eventmanager_restore_dump=$HOME/path/to/eventmanager.pgdump
+task play -i inventories playbooks/eventmanager/playbook.yml \
+  -l faraday,faraday_eventmanager_staging -e eventmanager_restore_dump=$HOME/path/to/eventmanager.pgdump
 ```
 
 Files are separate. Private uploads go to `data/private`, not `data/media` -
@@ -159,7 +160,7 @@ nginx serves `media/` publicly (bohr kept everything in `media/`):
 
 ```sh
 B=~/Devel/vfll_backups/migration_2026-11/eventmanager_media   # copy of bohr's media/
-H=scienceuli@faraday.science-and-more.com; D=/opt/docker/eventmanager/data
+H=scienceuli@faraday.science-and-more.com; D=/opt/docker/eventmanager-staging/data
 rsync -a --rsync-path="sudo rsync" --exclude=/invoices/ --exclude=/confirmations/ \
   --exclude=/uploaded_private_documents/ --exclude=/stornos/ $B/ $H:$D/media/
 for p in invoices confirmations uploaded_private_documents stornos; do
@@ -170,10 +171,18 @@ ssh $H "sudo chown -R 1000:1000 $D/media $D/private"
 
 ## Cutover from bohr (veranstaltungskalender.vfll.de)
 
+> Since 2026-11-06 the instance on faraday is **staging**
+> (`eventmanager-staging`, `https://staging.veranstaltungskalender.vfll.de`).
+> Production gets its own instance `eventmanager` (see README, "Instances"):
+> its own inventory host with `eventmanager_name: eventmanager`, the PRODUCTION
+> settings from `host_vars/faraday_eventmanager_staging/vars.yml`, and the commented
+> production entries in `host_vars/faraday/vars.yml`. The steps below are from
+> the time faraday itself was meant to become production.
+
 faraday already runs with production's `SECRET_KEY`/`ENCRYPT_KEY`, SMTP and
-member-admin settings (`host_vars/faraday_eventmanager`), but on its own
+member-admin settings (`host_vars/faraday_eventmanager_staging`), but on its own
 name, with mails to files, without Mailgun and without the cron job. The
-`CUTOVER` comments in `host_vars/faraday_eventmanager/vars.yml` and
+`CUTOVER` comments in `host_vars/faraday_eventmanager_staging/vars.yml` and
 `host_vars/faraday/vars.yml` mark what to switch. Expect ~30 min downtime.
 
 1. **A day before:** lower the TTL of `veranstaltungskalender.vfll.de` at
@@ -188,14 +197,14 @@ name, with mails to files, without Mailgun and without the cron job. The
    ssh scienceuli@bohr.science-and-more.com 'f=~/eventmanager_dev/eventmanager/.env; g(){ grep -m1 "^$1=" $f | cut -d= -f2-; }; PGPASSWORD="$(g DB_PASSWORD)" pg_dump -Fc -h "$(g DB_HOST)" -U "$(g DB_USER)" -d "$(g DB_NAME)"' > ~/Devel/vfll_backups/migration_2026-11/eventmanager_cutover.pgdump
    rsync -a scienceuli@bohr.science-and-more.com:eventmanager_dev/media/ ~/Devel/vfll_backups/migration_2026-11/eventmanager_media/
    ```
-4. **Switch faraday** (`CUTOVER` in `host_vars/faraday_eventmanager/vars.yml`):
+4. **Switch faraday** (`CUTOVER` in `host_vars/faraday_eventmanager_staging/vars.yml`):
    `eventmanager_domain: veranstaltungskalender.vfll.de`,
    `eventmanager_domain_aliases: [faraday.science-and-more.com]`, SMTP
    backend, Mailgun from the vault, `eventmanager_cron_jobs` with
    `fetch_emails`. Then restore and deploy in one go:
    ```sh
    uv run ansible-playbook -i inventories playbooks/eventmanager/playbook.yml \
-     -l faraday,faraday_eventmanager -e eventmanager_restore_dump=$HOME/Devel/vfll_backups/migration_2026-11/eventmanager_cutover.pgdump
+     -l faraday,faraday_eventmanager_staging -e eventmanager_restore_dump=$HOME/Devel/vfll_backups/migration_2026-11/eventmanager_cutover.pgdump
    ```
    plus the media rsync from "Restore a production dump".
 5. **DNS:** point the A record of `veranstaltungskalender.vfll.de` to
@@ -220,6 +229,6 @@ name, with mails to files, without Mailgun and without the cron job. The
 | `Permission denied (publickey)` as root after step 3 | Expected: step 3 disables root login. Use `scienceuli`. |
 | `Unable to encrypt nor hash, passlib must be installed` | `uv sync` (passlib is in `pyproject.toml`). |
 | certbot: `Some challenges have failed` | DNS doesn't point to the server yet, or port 80 is blocked (`ufw status`, Hetzner firewall in the Cloud Console). |
-| nginx test: `host not found in upstream "eventmanager-web"` | The web container isn't running → `sudo docker compose logs web` in `/opt/docker/eventmanager`. |
+| nginx test: `host not found in upstream "eventmanager-staging"` | The web container isn't running → `sudo docker compose logs web` in `/opt/docker/eventmanager-staging`. |
 | 502 Bad Gateway | `web` is still starting (migrations + collectstatic) or crashed → same logs. |
-| `/static/` gives 404 | collectstatic hasn't run yet (web logs); the nginx container mounts `/opt/docker/eventmanager/data/static` read-only. |
+| `/static/` gives 404 | collectstatic hasn't run yet (web logs); the nginx container mounts `/opt/docker/eventmanager-staging/data/static` read-only. |

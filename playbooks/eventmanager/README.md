@@ -1,16 +1,36 @@
 # VFLL Eventmanager on faraday
 
-Docker compose stack in `/opt/docker/eventmanager`, fronted by the nginx
-container (`nginx` + `certbot` roles, like on backup):
-`https://faraday.science-and-more.com`. The web container joins the docker
-network `science-and-more.com` and nginx proxies to `eventmanager-web:8000`.
+Staging instance `eventmanager-staging` on faraday:
+`https://staging.veranstaltungskalender.vfll.de` (basic auth `testing`, user
+`vfll`). Docker compose stack in `/opt/docker/eventmanager-staging`, fronted by
+the nginx container (`nginx` + `certbot` roles, like on backup). The web
+container joins the docker network `science-and-more.com` and nginx proxies to
+`eventmanager-staging:8000`.
+
+## Instances
+
+`eventmanager_name` (role `eventmanager`, default `eventmanager`) names one
+instance, so production and staging can share a host:
+
+| | production | staging (faraday, since 2026-11-06) |
+|---|---|---|
+| `eventmanager_name` | `eventmanager` | `eventmanager-staging` |
+| web container = nginx `dest_hostname` | `eventmanager` | `eventmanager-staging` |
+| other containers | `eventmanager-db`, `-mjml`, `-mailqueue` | `eventmanager-staging-db`, `-mjml`, `-mailqueue` |
+| compose project, image, directory | `eventmanager`, `eventmanager:latest`, `/opt/docker/eventmanager` | `eventmanager-staging`, … , `/opt/docker/eventmanager-staging` |
+| domain | `veranstaltungskalender.vfll.de` | `staging.veranstaltungskalender.vfll.de` |
+
+Each instance is one inventory host (here `faraday_eventmanager_staging`) with its own
+`eventmanager_*` vars; on the docker host its own `nginx_proxies` entry,
+`nginx_extra_volumes` (`/srv/<name>/static`, `/srv/<name>/media`) and
+`restic_backup_set` entries.
 
 | Service     | What                                                        |
 |-------------|-------------------------------------------------------------|
-| `web`       | Django + gunicorn, `eventmanager-web:8000` (no host port); runs migrate + collectstatic on start |
+| `web`       | Django + gunicorn, `eventmanager-staging:8000` (no host port); runs migrate + collectstatic on start |
 | `mailqueue` | `manage.py send_queued_messages` every 60 s (django-mail-queue) |
 | `mjml`      | MJML TCP server for MJML newsletters                        |
-| `db`        | Postgres 16, data in `/opt/docker/eventmanager/db-data`     |
+| `db`        | Postgres 16, data in `/opt/docker/eventmanager-staging/db-data`     |
 
 The image is built on the host from the public GitHub repo
 (`eventmanager_git_version`, default `main`): push first, then re-run.
@@ -28,23 +48,23 @@ Step by step from a fresh server: [HOW_TO_DEPLOY.md](HOW_TO_DEPLOY.md).
 
 Two inventory hosts for the same server:
 
-- `inventories/host_vars/faraday_eventmanager/`: `vars.yml` (domain, docker
+- `inventories/host_vars/faraday_eventmanager_staging/`: `vars.yml` (domain, docker
   network, mail backend, ...) and `vault.yml` (Django `SECRET_KEY`, Fernet
   `ENCRYPT_KEY`, Postgres password).
 - `inventories/host_vars/faraday/vars.yml`: the nginx/certbot containers -
   `nginx_proxies` (proxy, `/static/`, `/media/`) and `nginx_extra_volumes`
   (static/ and media/ mounted read-only into nginx).
 All role variables with defaults: `roles/eventmanager/defaults/main.yml`.
-The role renders them into `/opt/docker/eventmanager/.env`, which
+The role renders them into `/opt/docker/eventmanager-staging/.env`, which
 `eventmanager.container_settings` reads. Keep `$` out of secret values
 (compose interpolates it in env files).
 
 Mail: faraday uses the file backend by default, so nothing leaves the
-server - mails land in `/opt/docker/eventmanager/data/sent_emails`.
+server - mails land in `/opt/docker/eventmanager-staging/data/sent_emails`.
 
 ## Data
 
-`/opt/docker/eventmanager/data` is mounted at `/data`:
+`/opt/docker/eventmanager-staging/data` is mounted at `/data`:
 
 - `static/` - collectstatic output, served by the nginx container
 - `media/` - public uploads, served by the nginx container (except `mailqueue-attachments/`)
@@ -60,8 +80,8 @@ restic, repo `faraday` on backup.science-and-more.com, configured in
 
 | Time | Job | Snapshot tag |
 |---|---|---|
-| 02:06 | `pg_dump` of `eventmanager` → `/var/backup/eventmanager-db/eventmanager.sql` | `postgres` |
-| 02:25 | `/opt/docker/eventmanager/data` (media, private, sent_emails, static) | `files` |
+| 02:06 | `pg_dump` of `eventmanager` → `/var/backup/eventmanager-staging-db/eventmanager.sql` | `postgres` |
+| 02:25 | `/opt/docker/eventmanager-staging/data` (media, private, sent_emails, static) | `files` |
 | 23:xx | `forget --prune` (14 last, 14 daily, 4 weekly, 3 monthly) | |
 
 On faraday (`restic-main` = restic with repo and password preset):
@@ -69,11 +89,11 @@ On faraday (`restic-main` = restic with repo and password preset):
     sudo restic-main snapshots --tag eventmanager
     # database: restore the dump, then replace the live DB with it
     sudo restic-main restore latest --tag postgres --target /tmp/restore
-    sudo docker-postgres-restore -c eventmanager-db -d eventmanager -r \
-      -f /tmp/restore/var/backup/eventmanager-db/eventmanager.sql
+    sudo docker-postgres-restore -c eventmanager-staging-db -d eventmanager -r \
+      -f /tmp/restore/var/backup/eventmanager-staging-db/eventmanager.sql
     # files: restore, then copy back what's needed
     sudo restic-main restore latest --tag files --target /tmp/restore
-    sudo rsync -a /tmp/restore/opt/docker/eventmanager/data/ /opt/docker/eventmanager/data/
+    sudo rsync -a /tmp/restore/opt/docker/eventmanager-staging/data/ /opt/docker/eventmanager-staging/data/
 
 Stop `web` and `mailqueue` (`sudo docker compose stop web mailqueue`) before
 replacing the database, start them again afterwards.
@@ -81,18 +101,18 @@ replacing the database, start them again afterwards.
 ## First run on a fresh database
 
     ssh -t scienceuli@faraday.science-and-more.com \
-      "sudo docker exec -it eventmanager-web python manage.py createsuperuser"
+      "sudo docker exec -it eventmanager-staging python manage.py createsuperuser"
 
 Optional initial data shipped in the repo:
 
-    sudo docker exec eventmanager-web python manage.py loaddata \
+    sudo docker exec eventmanager-staging python manage.py loaddata \
       data/initial_groups.json data/initial_email_templates.json
 
 Set the domain of `Site` 1 in the admin (Sites) to the real domain.
 
 ## Useful commands
 
-    cd /opt/docker/eventmanager
+    cd /opt/docker/eventmanager-staging
     sudo docker compose logs -f web
     sudo docker compose exec web python manage.py shell
     sudo docker compose exec db psql -U eventmanager eventmanager

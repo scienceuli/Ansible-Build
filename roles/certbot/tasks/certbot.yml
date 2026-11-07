@@ -35,6 +35,27 @@
   loop: "{{ certbot_missing_certs }}"
   when: certbot_missing_certs is defined
 
+# Same cleanup as the nginx role, but before the restart below: a config of a
+# proxy that left nginx_proxies (e.g. renamed upstream container) would make
+# nginx fail on "host not found in upstream" and take all sites down.
+- name: Find nginx proxy configs
+  ansible.builtin.find:
+    paths: "{{ nginx_data_dir }}/proxies"
+    patterns: "*.conf"
+  register: certbot_proxy_confs
+  when: nginx_proxies is defined
+
+- name: Remove nginx proxy configs no longer in nginx_proxies
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ certbot_proxy_confs.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  when:
+    - nginx_proxies is defined
+    - (item.path | basename) not in (nginx_proxies | map(attribute='src_hostname') | map('replace', '*.', 'wildcard.') | map('regex_replace', '$', '.conf') | list)
+
 - name: Get infos on container {{ nginx_hostname }}
   community.docker.docker_container_info:
     name: "{{ nginx_hostname }}"

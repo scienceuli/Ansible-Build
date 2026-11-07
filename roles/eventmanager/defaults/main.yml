@@ -4,7 +4,7 @@
 # VFLL Eventmanager (Django) as docker compose stack: web (gunicorn),
 # mailqueue (sends queued mails), mjml (TCP server for MJML mails) and
 # Postgres. The nginx container (roles nginx/certbot, configured on the
-# docker host via nginx_proxies) terminates TLS, proxies to eventmanager-web
+# docker host via nginx_proxies) terminates TLS, proxies to the web container
 # over the shared docker network and serves /static/ and /media/ from the
 # bind-mounted data dir.
 
@@ -19,7 +19,13 @@
 eventmanager_git_repo: "https://github.com/scienceuli/eventmanager.git"
 eventmanager_git_version: "main"
 
-eventmanager_compose_dir: "/opt/docker/eventmanager"
+# Instance name, so several instances can share a host (e.g. production
+# "eventmanager" and "eventmanager-staging"): container name of the web service
+# = nginx upstream (dest_hostname), prefix of the other containers (<name>-db,
+# <name>-mjml, <name>-mailqueue), compose project, image and directory.
+eventmanager_name: "eventmanager"
+
+eventmanager_compose_dir: "/opt/docker/{{ eventmanager_name }}"
 eventmanager_src_dir: "{{ eventmanager_compose_dir }}/src"
 # Mounted at /data: static/, media/, private/, sent_emails/
 eventmanager_data_dir: "{{ eventmanager_compose_dir }}/data"
@@ -76,7 +82,7 @@ eventmanager_extra_env: {}
 eventmanager_domain_aliases: []
 
 # Periodic management commands, run on the docker host via
-# `docker exec eventmanager-web python manage.py <command>` (replaces the old
+# `docker exec <eventmanager_name> python manage.py <command>` (replaces the old
 # server's django-crontab CRONJOBS), e.g.
 #   - { name: fetch_emails, command: fetch_emails, minute: "0", hour: "0" }
 eventmanager_cron_jobs: []

@@ -67,11 +67,11 @@
 # Output goes to syslog: journalctl -t eventmanager-cron
 - name: Schedule periodic management commands
   ansible.builtin.cron:
-    name: "eventmanager {{ item.name }}"
+    name: "{{ eventmanager_name }} {{ item.name }}"
     minute: "{{ item.minute | default('0') }}"
     hour: "{{ item.hour | default('*') }}"
     job: >-
-      docker exec eventmanager-web python manage.py {{ item.command }} 2>&1
+      docker exec {{ eventmanager_name }} python manage.py {{ item.command }} 2>&1
       | logger -t eventmanager-cron
   loop: "{{ eventmanager_cron_jobs }}"
   loop_control:
@@ -84,7 +84,7 @@
   vars:
     compose_pg_restore_dump: "{{ eventmanager_restore_dump }}"
     compose_pg_restore_project_dir: "{{ eventmanager_compose_dir }}"
-    compose_pg_restore_db_container: "eventmanager-db"
+    compose_pg_restore_db_container: "{{ eventmanager_name }}-db"
     compose_pg_restore_db_name: "{{ eventmanager_db_name }}"
     compose_pg_restore_db_user: "{{ eventmanager_db_user }}"
     compose_pg_restore_app_services: [web, mailqueue]

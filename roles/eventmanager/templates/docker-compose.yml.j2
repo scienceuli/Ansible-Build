@@ -1,8 +1,10 @@
 {{ ansible_managed | comment }}
+name: "{{ eventmanager_name }}"
+
 services:
   db:
     image: "{{ eventmanager_db_image }}"
-    container_name: "eventmanager-db"
+    container_name: "{{ eventmanager_name }}-db"
     restart: "{{ eventmanager_restart_policy }}"
     environment:
       POSTGRES_DB: "{{ eventmanager_db_name }}"
@@ -17,19 +19,19 @@ services:
 
   mjml:
     image: "{{ eventmanager_mjml_image }}"
-    container_name: "eventmanager-mjml"
+    container_name: "{{ eventmanager_name }}-mjml"
     restart: "{{ eventmanager_restart_policy }}"
 
   web:
     build: ./src
-    image: "eventmanager:latest"
-    container_name: "eventmanager-web"
+    image: "{{ eventmanager_name }}:latest"
+    container_name: "{{ eventmanager_name }}"
     restart: "{{ eventmanager_restart_policy }}"
     command: ["gunicorn", "eventmanager.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "{{ eventmanager_gunicorn_workers }}", "--timeout", "120", "--access-logfile", "-"]
     env_file: .env
     environment:
       RUN_MIGRATIONS: "1"
-    # Reached by the nginx container as eventmanager-web:8000
+    # Reached by the nginx container as {{ eventmanager_name }}:8000
     networks:
       - default
       - proxy
@@ -42,9 +44,9 @@ services:
         condition: service_started
 
   mailqueue:
-    image: "eventmanager:latest"
+    image: "{{ eventmanager_name }}:latest"
     pull_policy: never    # built locally by the web service
-    container_name: "eventmanager-mailqueue"
+    container_name: "{{ eventmanager_name }}-mailqueue"
     restart: "{{ eventmanager_restart_policy }}"
     command: ["/app/docker/mailqueue.sh"]
     env_file: .env

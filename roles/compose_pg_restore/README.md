@@ -15,7 +15,7 @@ requested, e.g. `eventmanager_restore_dump` / `vfllcms_restore_dump`:
 
 ```sh
 uv run ansible-playbook -i inventories playbooks/eventmanager/playbook.yml \
-  -l faraday,faraday_eventmanager -e eventmanager_restore_dump=$HOME/dumps/eventmanager.pgdump
+  -l faraday,faraday_eventmanager_staging -e eventmanager_restore_dump=$HOME/dumps/eventmanager.pgdump
 ```
 
 Variables: see `defaults/main.yml`.

@@ -1,7 +1,7 @@
 ---
 # Order matters: the network must exist before the compose stack joins it,
-# and eventmanager-web must be running before nginx tests its config
-# (nginx -t resolves the upstream).
+# and the web container (eventmanager_name) should run before nginx starts;
+# faraday has nginx_resolver, so a missing upstream only gives a 502.
 - name: Docker + shared network on faraday
   hosts: faraday
   roles:
