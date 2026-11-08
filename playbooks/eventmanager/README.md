@@ -111,15 +111,35 @@ applied with `playbooks/setup.yml -t restic -l bohr`. Nightly on bohr:
 | 02:25 | `/opt/docker/eventmanager/data` (media, private, sent_emails, static) | `eventmanager`, `files` |
 | 23:36 | `forget --prune` (14 last, 14 daily, 4 weekly, 3 monthly) | |
 
-On bohr (`restic-main` = restic with repo and password preset):
+On bohr (`restic-main` = restic with repo and password preset). Combine
+tags with a comma: `--tag a,b` means a **and** b, while `--tag a --tag b`
+means a **or** b (`latest` could then pick the other app's dump, or the
+files snapshot):
 
     sudo restic-main snapshots --tag eventmanager
-    sudo restic-main restore latest --tag postgres --tag eventmanager --target /tmp/restore
-    sudo restic-main restore latest --tag files --tag eventmanager --target /tmp/restore
+    sudo restic-main restore latest --tag eventmanager,postgres --target /tmp/restore
+    sudo restic-main restore latest --tag eventmanager,files --target /tmp/restore
 
-To put a database dump back, use the playbook with
-`-e eventmanager_restore_dump=<dump on your Mac>`: see HOW_TO_DEPLOY.md,
-"Restore a database dump".
+The nightly dump is **plain SQL** (`docker-postgres-backup` runs `pg_dump`
+without `-Fc`): `/tmp/restore/var/backup/eventmanager-db/eventmanager.sql`. Load it with
+`psql`, not with `-e eventmanager_restore_dump=...` (that runs `pg_restore`, which
+rejects plain SQL dumps). With web stopped:
+
+    cd /opt/docker/eventmanager
+    sudo docker compose stop web       # + mailqueue with eventmanager_mailqueue_autosend: true
+    sudo docker exec eventmanager-db sh -c \
+      'dropdb -U eventmanager --maintenance-db=postgres --if-exists --force eventmanager \
+       && createdb -U eventmanager --maintenance-db=postgres -O eventmanager eventmanager'
+    sudo cat /tmp/restore/var/backup/eventmanager-db/eventmanager.sql \
+      | sudo docker exec -i eventmanager-db \
+        psql -U eventmanager -d eventmanager -v ON_ERROR_STOP=1 --single-transaction -q
+    sudo docker compose start web      # only if the restore succeeded
+
+Files: `sudo rsync -a /tmp/restore/opt/docker/eventmanager/data/ /opt/docker/eventmanager/data/`,
+then `chown -R 1000:1000` on `media/`, `private/`, `sent_emails/`. Remove `/tmp/restore` afterwards.
+
+`-e eventmanager_restore_dump=<dump on your Mac>` is for `pg_dump -Fc` archives
+(e.g. a production dump for staging): see HOW_TO_DEPLOY.md, "Restore a database dump".
 
 ## First run on a fresh database
 

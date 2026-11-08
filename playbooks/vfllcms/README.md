@@ -103,11 +103,35 @@ configured in `inventories/host_vars/bohr/vars.yml`, applied with
 | 02:57 | `/opt/docker/vfllcms/data` (media, static) | `vfllcms`, `files` |
 | 23:36 | `forget --prune` (14 last, 14 daily, 4 weekly, 3 monthly) | |
 
-    sudo restic-main snapshots --tag vfllcms
-    sudo restic-main restore latest --tag postgres --tag vfllcms --target /tmp/restore
+On bohr (`restic-main` = restic with repo and password preset). Combine
+tags with a comma: `--tag a,b` means a **and** b, while `--tag a --tag b`
+means a **or** b (`latest` could then pick the other app's dump, or the
+files snapshot):
 
-To put a database dump back, use the playbook with
-`-e vfllcms_restore_dump=<dump on your Mac>`: see HOW_TO_DEPLOY.md.
+    sudo restic-main snapshots --tag vfllcms
+    sudo restic-main restore latest --tag vfllcms,postgres --target /tmp/restore
+    sudo restic-main restore latest --tag vfllcms,files --target /tmp/restore
+
+The nightly dump is **plain SQL** (`docker-postgres-backup` runs `pg_dump`
+without `-Fc`): `/tmp/restore/var/backup/vfllcms-db/vfllcms.sql`. Load it with
+`psql`, not with `-e vfllcms_restore_dump=...` (that runs `pg_restore`, which
+rejects plain SQL dumps). With web stopped:
+
+    cd /opt/docker/vfllcms
+    sudo docker compose stop web
+    sudo docker exec vfllcms-db sh -c \
+      'dropdb -U vfllcms --maintenance-db=postgres --if-exists --force vfllcms \
+       && createdb -U vfllcms --maintenance-db=postgres -O vfllcms vfllcms'
+    sudo cat /tmp/restore/var/backup/vfllcms-db/vfllcms.sql \
+      | sudo docker exec -i vfllcms-db \
+        psql -U vfllcms -d vfllcms -v ON_ERROR_STOP=1 --single-transaction -q
+    sudo docker compose start web      # only if the restore succeeded
+
+Files: `sudo rsync -a /tmp/restore/opt/docker/vfllcms/data/ /opt/docker/vfllcms/data/`,
+then `chown -R 1000:1000` on `media/`. Remove `/tmp/restore` afterwards.
+
+`-e vfllcms_restore_dump=<dump on your Mac>` is for `pg_dump -Fc` archives
+(e.g. a production dump for staging): see HOW_TO_DEPLOY.md.
 
 ## First run on a fresh database
 
