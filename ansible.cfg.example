@@ -1,0 +1,15 @@
+# Copy to ansible.cfg (gitignored) in the repo root:
+#   cp ansible.cfg.example ansible.cfg
+# Ansible only reads ansible.cfg from the current directory, so run
+# ansible-playbook / task play from the repo root.
+[defaults]
+# Private inventory repo, cloned into ./inventories (gitignored):
+#   git clone git@codeberg.org:scienceuli/inventories.git inventories
+# The playbook docs still pass -i inventories explicitly.
+inventory = ./inventories
+interpreter_python = auto_silent
+# <vault-id>@<password file>. The vault values are encrypted with the id
+# "scienceuli" ($ANSIBLE_VAULT;1.2;AES256;scienceuli). .vault-pass holds the
+# password on one line, mode 0600, and is gitignored - never commit it.
+vault_identity_list = scienceuli@.vault-pass
+roles_path = ./roles

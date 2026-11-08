@@ -19,7 +19,7 @@ help-table() {
     rows+=("encrypt-file|[vault_id] [path]|Encrypt file with Ansible Vault.")
     rows+=("encrypt-string|[vault_id] [key] [value] -q|Generate encrypted string with Ansible Vault.")
     rows+=("generate-encrypted-string|[vault_id] [key] -q|Generate encrypted string for key with Ansible Vault.")
-    rows+=("generate-vault-password|[vault_id] [password]|Generate a password file for Ansible Vault.")
+    rows+=("generate-vault-password|[file]|Prompt for the vault password and write it to file (default .vault-pass).")
     rows+=("show-vault-file|[vault_id] [path]|Show content of encrypted strings or fully encrypted vault file.")
     rows+=("===SETUP===| | ")
     rows+=("install||Install Ansible and dependencies with uv.")
@@ -238,16 +238,25 @@ list-vault() {
 }
 
 generate-vault-password() {
-    if [[ -z "$1" ]]; then echo '$1 is empty'; exit; fi
-    if [[ -z "$2" ]]; then echo '$2 is empty'; exit; fi
+    # The password file named in ansible.cfg (vault_identity_list =
+    # scienceuli@.vault-pass). The password is read without echo, so it
+    # stays out of the shell history and the process list.
+    local file="${1:-.vault-pass}"
+    local answer password password2
 
-    local vault_id="$1"
-    local vaultpassword="$2"
-    export VAULT_ID="$vault_id"
-    export VAULTPASSWORD="$vaultpassword"
-    echo "$vaultpassword" > ".vault_pass_$vault_id"
-    chmod 600 ".vault_pass_$vault_id"
-    echo "Password file .vault_pass_$vault_id created."
+    if [[ -e "$file" ]]; then
+        read -r -p "$file exists. Overwrite? [y/N] " answer
+        [[ "$answer" == [yY] ]] || { echo 'Aborted.'; return 1; }
+    fi
+
+    read -r -s -p 'Vault password: ' password; echo
+    read -r -s -p 'Repeat: ' password2; echo
+    [[ -n "$password" ]] || { echo 'Password cannot be empty.'; return 1; }
+    [[ "$password" == "$password2" ]] || { echo 'Passwords do not match.'; return 1; }
+
+    (umask 077 && printf '%s\n' "$password" > "$file")
+    chmod 600 "$file"
+    echo "Password file $file created (mode 600)."
 }
 
 encrypt-string() {
