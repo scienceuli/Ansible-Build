@@ -22,8 +22,6 @@
       tags: mysql
     - role: bookstack
       tags: bookstack
-    - role: matomo
-      tags: matomo
     - role: fathom
       tags: fathom
     - role: keycloak
