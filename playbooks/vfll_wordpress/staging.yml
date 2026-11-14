@@ -1,0 +1,217 @@
+---
+# Fill (or refresh) the VFLL blog STAGING (gauss_blog_staging,
+# staging.blog.vfll.de) with the newest restic backup of PRODUCTION
+# (gauss_blog, lektorenverband.de) - the nightly snapshots of host_vars/gauss
+# restic_backup_set, restored on gauss itself, nothing goes over the controller.
+# Replaces the staging database and the staging volume (except wp-config.php,
+# staging keeps its own DB credentials and salts), rewrites the URLs, blocks
+# all mail (mu-plugin), deactivates MailPoet and hides the site from search
+# engines. Staging must be deployed first (playbooks/wordpress.yml -l gauss_blog_staging).
+# Production is only read (restic), never touched.
+#   uv run ansible-playbook -i inventories playbooks/vfll_wordpress/staging.yml
+- name: Refresh VFLL WordPress staging from the production backup
+  hosts: gauss_blog_staging
+  become: true
+  gather_facts: false
+  vars:
+    wpstaging_prod: "{{ hostvars['gauss_blog'] }}"
+    wpstaging_prod_url: "https://{{ wpstaging_prod.wordpress_domain }}"
+    wpstaging_url: "https://{{ wordpress_domain }}"
+    wpstaging_restore_dir: /var/tmp/wordpress-staging-restore
+    # restic tags of the backup jobs (host_vars/gauss restic_backup_set)
+    wpstaging_db_tags: "wordpress,{{ wpstaging_prod.mysql_hostname }}"
+    wpstaging_volume_tags: "wordpress,{{ wpstaging_prod.wordpress_hostname }}"
+    # paths inside the snapshots: docker-mysql-backup / docker-volume-backup
+    # write to /var/backup/<container>/
+    wpstaging_dump: "{{ wpstaging_restore_dir }}/var/backup/{{ wpstaging_prod.mysql_hostname }}/{{ wpstaging_prod.wordpress_db_name }}.sql"
+    wpstaging_tar: "{{ wpstaging_restore_dir }}/var/backup/{{ wpstaging_prod.wordpress_hostname }}/{{ wpstaging_prod.wordpress_volume_name }}.tar"
+    # wp-cli with the volume and env of the staging container (see restore.yml)
+    wpstaging_wp: >-
+      docker run --rm --user 33:33 --volumes-from {{ wordpress_hostname }}
+      --network {{ docker_network_name }}
+      -e WORDPRESS_DB_HOST={{ wordpress_db_hostname }} -e WORDPRESS_DB_USER={{ wordpress_db_user }}
+      -e WORDPRESS_DB_PASSWORD={{ wordpress_db_password }} -e WORDPRESS_DB_NAME={{ wordpress_db_name }}
+      wordpress:cli wp
+  tasks:
+    - name: Never run against production
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname != 'gauss_blog'
+          - wordpress_hostname != wpstaging_prod.wordpress_hostname
+          - wordpress_volume_name != wpstaging_prod.wordpress_volume_name
+          - mysql_hostname != wpstaging_prod.mysql_hostname
+          - wordpress_domain != wpstaging_prod.wordpress_domain
+        fail_msg: Staging vars point to production - check host_vars/{{ inventory_hostname }}
+
+    - name: Read staging containers
+      community.docker.docker_container_info:
+        name: "{{ item }}"
+      loop:
+        - "{{ mysql_hostname }}"
+        - "{{ wordpress_hostname }}"
+      register: wpstaging_containers
+
+    - name: Require the staging stack
+      ansible.builtin.assert:
+        that: wpstaging_containers.results | map(attribute='exists') | min
+        fail_msg: "Deploy staging first: playbooks/wordpress.yml -l {{ inventory_hostname }}"
+
+    - name: Find newest production snapshots
+      ansible.builtin.command: restic-main snapshots --latest 1 --tag {{ item }} --json
+      loop:
+        - "{{ wpstaging_db_tags }}"
+        - "{{ wpstaging_volume_tags }}"
+      register: wpstaging_snapshots
+      changed_when: false
+
+    - name: Set snapshots
+      ansible.builtin.set_fact:
+        wpstaging_db_snapshot: "{{ wpstaging_snapshots.results[0].stdout | from_json | last }}"
+        wpstaging_volume_snapshot: "{{ wpstaging_snapshots.results[1].stdout | from_json | last }}"
+
+    - name: Snapshots used
+      ansible.builtin.debug:
+        msg:
+          - "database: {{ wpstaging_db_snapshot.short_id }} {{ wpstaging_db_snapshot.time }}"
+          - "volume:   {{ wpstaging_volume_snapshot.short_id }} {{ wpstaging_volume_snapshot.time }}"
+
+    - name: Empty restore dir
+      ansible.builtin.file:
+        path: "{{ wpstaging_restore_dir }}"
+        state: absent
+
+    - name: Restore snapshots to {{ wpstaging_restore_dir }}
+      ansible.builtin.command: restic-main restore {{ item }} --target {{ wpstaging_restore_dir }}
+      loop:
+        - "{{ wpstaging_db_snapshot.id }}"
+        - "{{ wpstaging_volume_snapshot.id }}"
+      changed_when: true
+
+    - name: Check restored dump
+      ansible.builtin.command: tail -1 {{ wpstaging_dump }}
+      register: wpstaging_dump_tail
+      changed_when: false
+      failed_when: "'Dump completed' not in wpstaging_dump_tail.stdout"
+
+    - name: Get volume path of {{ wordpress_volume_name }}
+      community.docker.docker_volume_info:
+        name: "{{ wordpress_volume_name }}"
+      register: wpstaging_volume
+
+    # Written by the image on the first start of the staging container
+    - name: Check staging wp-config.php
+      ansible.builtin.stat:
+        path: "{{ wpstaging_volume.volume.Mountpoint }}/wp-config.php"
+      register: wpstaging_config
+      failed_when: not wpstaging_config.stat.exists
+
+    - name: Wait for {{ mysql_hostname }}
+      ansible.builtin.command: docker exec {{ mysql_hostname }} sh -c 'mysqladmin ping -uroot -p"$MYSQL_ROOT_PASSWORD" --silent'
+      register: wpstaging_ping
+      until: wpstaging_ping.rc == 0
+      retries: 30
+      delay: 5
+      changed_when: false
+
+    - name: Stop {{ wordpress_hostname }}
+      community.docker.docker_container:
+        name: "{{ wordpress_hostname }}"
+        state: stopped
+
+    # The user's grants are on `wordpress`.* by name and survive the drop
+    - name: Replace database {{ wordpress_db_name }} in {{ mysql_hostname }}
+      ansible.builtin.shell: |
+        set -o pipefail
+        docker exec {{ mysql_hostname }} sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "
+          DROP DATABASE IF EXISTS \`{{ wordpress_db_name }}\`;
+          CREATE DATABASE \`{{ wordpress_db_name }}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"'
+        docker exec -i {{ mysql_hostname }} sh -c 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" {{ wordpress_db_name }}' < {{ wpstaging_dump }}
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    # Tar members are _data/... (docker-volume-backup); core + wp-content of
+    # production, staging's own wp-config.php stays
+    - name: Replace volume content (except wp-config.php)
+      ansible.builtin.shell: |
+        set -e
+        cd {{ wpstaging_volume.volume.Mountpoint }}
+        find . -mindepth 1 -maxdepth 1 ! -name wp-config.php -exec rm -rf {} +
+        tar --strip-components=1 --exclude=_data/wp-config.php -xf {{ wpstaging_tar }}
+        mkdir -p wp-content/mu-plugins
+        chown -R 33:33 .
+      changed_when: true
+
+    - name: Block all mail from staging (mu-plugin)
+      ansible.builtin.copy:
+        dest: "{{ wpstaging_volume.volume.Mountpoint }}/wp-content/mu-plugins/staging-no-mail.php"
+        owner: "33"
+        group: "33"
+        mode: "0644"
+        content: |
+          <?php
+          /*
+           * Plugin Name: Staging - no mail
+           * Description: Copy of the production blog (playbooks/vfll_wordpress/staging.yml): wp_mail() sends nothing.
+           */
+          add_filter('pre_wp_mail', '__return_false');
+
+    - name: Start {{ wordpress_hostname }}
+      community.docker.docker_container:
+        name: "{{ wordpress_hostname }}"
+        state: started
+
+    # MailPoet sends via its own transport, not wp_mail()
+    - name: Deactivate MailPoet
+      ansible.builtin.shell: >-
+        if {{ wpstaging_wp }} plugin is-active mailpoet; then
+        {{ wpstaging_wp }} plugin deactivate mailpoet; echo deactivated; fi
+      register: wpstaging_mailpoet
+      changed_when: "'deactivated' in wpstaging_mailpoet.stdout"
+      no_log: true
+
+    # Also the JSON-escaped form (block editor attributes)
+    - name: Rewrite production URLs
+      ansible.builtin.command: >-
+        {{ wpstaging_wp }} search-replace '{{ item.from }}' '{{ item.to }}'
+        --all-tables-with-prefix --skip-columns=guid --report-changed-only
+      loop:
+        - { from: "https://www.{{ wpstaging_prod.wordpress_domain }}", to: "{{ wpstaging_url }}" }
+        - { from: "{{ wpstaging_prod_url }}", to: "{{ wpstaging_url }}" }
+        - { from: "{{ wpstaging_prod_url | replace('/', '\\/') }}", to: "{{ wpstaging_url | replace('/', '\\/') }}" }
+      loop_control:
+        label: "{{ item.from }}"
+      no_log: true
+      changed_when: true
+
+    - name: Discourage search engines
+      ansible.builtin.command: "{{ wpstaging_wp }} option update blog_public 0"
+      no_log: true
+      changed_when: true
+
+    - name: Flush object cache
+      ansible.builtin.command: "{{ wpstaging_wp }} cache flush"
+      no_log: true
+      changed_when: false
+
+    # Without WORDPRESS_CONFIG_EXTRA (WP_HOME/WP_SITEURL) wp-cli reads the
+    # options from the database - this checks the rewrite, not the constants
+    - name: Read staging site
+      ansible.builtin.command: "{{ wpstaging_wp }} eval 'echo get_option(\"siteurl\"), \" \", get_option(\"home\"), \" \", wp_count_posts()->publish, \" \", get_bloginfo(\"version\");'"
+      register: wpstaging_site
+      no_log: true
+      changed_when: false
+
+    - name: Check staging site
+      ansible.builtin.assert:
+        that:
+          - wpstaging_site.stdout.split()[0] == wpstaging_url
+          - wpstaging_site.stdout.split()[1] == wpstaging_url
+          - wpstaging_site.stdout.split()[2] | int > 0
+        success_msg: "Staging: {{ wpstaging_site.stdout }} (siteurl, home, published posts, WordPress version)"
+        fail_msg: "Unexpected: {{ wpstaging_site.stdout }}"
+
+    - name: Remove restore dir
+      ansible.builtin.file:
+        path: "{{ wpstaging_restore_dir }}"
+        state: absent

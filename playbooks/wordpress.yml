@@ -1,13 +1,15 @@
 ---
 # WordPress (official image) + its own MySQL (role dependency) as containers
-# on the docker network of the host (docker_network_name). Host independent:
-# a host gets WordPress by joining the inventory group "wordpress" and defining
-# its config in host_vars/<host>/wordpress.yml (+ wordpress_vault.yml).
-#   uv run ansible-playbook -i inventories playbooks/wordpress.yml -l <host>
-#   uv run ansible-playbook -i inventories playbooks/wordpress.yml -l <host> -t wordpress
-# Afterwards (the app container must run first, nginx -t resolves it):
-#   reverse proxy + TLS: playbooks/proxy.yml -l <host> (nginx_proxies)
-#   backup jobs:         setup.yml -t restic -l <host> (restic_backup_set)
+# on the docker network of the host (docker_network_name). One inventory host
+# per instance in group "wordpress" (ansible_host = the docker host), config
+# in host_vars/<instance>/vars.yml (+ vault.yml), e.g. gauss_blog and
+# gauss_blog_staging on gauss (playbooks/vfll_wordpress/README.md).
+#   uv run ansible-playbook -i inventories playbooks/wordpress.yml -l <instance>
+#   uv run ansible-playbook -i inventories playbooks/wordpress.yml -l <instance> -t wordpress
+# Afterwards, on the docker host (with nginx_resolver set, nginx -t doesn't
+# need the app containers):
+#   reverse proxy + TLS: playbooks/proxy.yml -l <docker host> (nginx_proxies)
+#   backup jobs:         setup.yml -t restic -l <docker host> (restic_backup_set)
 - name: WordPress play
   hosts: wordpress
   become: true

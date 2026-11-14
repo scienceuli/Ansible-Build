@@ -10,13 +10,13 @@
 # Controller tasks set ansible_become as a var: the inventory's ansible_become
 # would override the become keyword (no sudo password on the controller).
 - name: Restore VFLL WordPress
-  hosts: gauss
+  hosts: gauss_blog
   become: true
   vars:
     vfllwp_local_dir: "{{ lookup('env', 'HOME') }}/Backups/gauss-vfllwp"
     vfllwp_remote_dir: /var/tmp/vfllwp-restore
     vfllwp_force: false
-    vfllwp_url: https://lektorenverband.de
+    vfllwp_url: "https://{{ wordpress_domain }}"
     # wp-cli with the volume and env of wordpress01; uid 33 = www-data of the
     # Debian based wordpress image (the alpine cli image has 82)
     vfllwp_wp: >-

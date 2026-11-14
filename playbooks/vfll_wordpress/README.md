@@ -49,18 +49,63 @@ All containers on the docker network `science-and-more.com`:
 
 | File | What |
 |---|---|
-| `inventories/hosts.yml` | gauss in `debian13` and in group `wordpress` |
-| `inventories/host_vars/gauss/wordpress.yml` | mysql + wordpress role vars (images, names, DB); `mysql_hostname` is referenced everywhere else (`wordpress_db_hostname`, `restic_backup_set`, `restore.yml`) |
-| `inventories/host_vars/gauss/wordpress_vault.yml` | `vault_wordpress_mysql_root_password`, `vault_wordpress_db_password` (generated 2026-10-21) |
-| `inventories/host_vars/gauss/vars.yml` | `nginx_proxies`, certbot, `restic_backup_set` |
-| `playbooks/wordpress.yml` | deploys gauss-mysql01 + wordpress01 (any host in group `wordpress`) |
+| `inventories/hosts.yml` | gauss (docker host) in `debian13`; the instances `gauss_blog` and `gauss_blog_staging` (`ansible_host` gauss) in group `wordpress` - like the vfllcms instances on bohr |
+| `inventories/host_vars/gauss/vars.yml` | docker host: `nginx_proxies` (both instances), certbot, basic auth `testing`, `restic_backup_set` (production only, container names literal) |
+| `inventories/host_vars/gauss/vault.yml` | `vault_testing_basic_auth_password` (copied from bohr, same password) |
+| `inventories/host_vars/gauss_blog/vars.yml` | production: mysql + wordpress role vars (images, names, DB, `wordpress_domain`); `mysql_hostname` is literal `gauss-mysql01` (referenced by `restic_backup_set`, `restore.yml`, `staging.yml`) |
+| `inventories/host_vars/gauss_blog/vault.yml` | `vault_wordpress_mysql_root_password`, `vault_wordpress_db_password` (generated 2026-10-21) |
+| `inventories/host_vars/gauss_blog_staging/` | staging: same layout, own names, volumes and passwords (generated 2026-11-14) |
+| `playbooks/wordpress.yml` | deploys mysql + wordpress of an instance (`-l gauss_blog` / `-l gauss_blog_staging`) |
 | `backup.yml` | backup of the **old** stack → `~/Backups/gauss-vfllwp/<date_time>/` on the controller |
-| `restore.yml` | newest (or `-e vfllwp_backup_name=…`) backup → new stack |
+| `restore.yml` | newest (or `-e vfllwp_backup_name=…`) backup → new production stack |
+| `staging.yml` | newest restic backup of production → staging |
 
 A backup contains `wordpress.sql.gz` (mysqldump `--single-transaction`),
 `wp-content.tar`, `project-config.tar.gz` (old compose files, `.env`, certs,
 scripts, `.git`), `site-info.txt` (versions, URLs, post/comment/user counts)
 and `SHA256SUMS` (verified on the controller after the download).
+
+## Staging (staging.blog.vfll.de)
+
+A copy of production for testing plugin/theme/core updates, on gauss next to
+production. Basic auth `testing` (user `vfll`, same password as staging.vfll.de
+on bohr) - it holds production data. No restic backup.
+
+| | production | staging |
+|---|---|---|
+| inventory host | `gauss_blog` | `gauss_blog_staging` |
+| URL | `https://lektorenverband.de` | `https://staging.blog.vfll.de` |
+| containers | `wordpress01`, `gauss-mysql01` | `wordpress-staging01`, `gauss-staging-mysql01` |
+| volumes | `wordpress_data01`, `mysql_data01` | `wordpress_staging_data01`, `mysql_staging_data01` |
+| restic backup | yes | no |
+
+Staging differences: `WP_HOME`/`WP_SITEURL` fixed to the staging URL,
+`WP_ENVIRONMENT_TYPE=staging`, `DISABLE_WP_CRON` (no scheduled jobs), the
+mu-plugin `staging-no-mail.php` (`wp_mail()` sends nothing), MailPoet
+deactivated, "discourage search engines" on. nginx drops the basic-auth
+`Authorization` header before WordPress (it would treat it as an application
+password and break REST/the block editor).
+
+**Set up** (DNS `staging.blog.vfll.de` → gauss must be in place for certbot):
+
+```sh
+# 1. containers (empty WordPress, wp-config.php with staging credentials/salts)
+uv run ansible-playbook -i inventories playbooks/wordpress.yml -l gauss_blog_staging
+# 2. content: newest production snapshots from restic (restored on gauss)
+uv run ansible-playbook -i inventories playbooks/vfll_wordpress/staging.yml
+# 3. basic auth, certificate, vhost
+uv run ansible-playbook -i inventories playbooks/proxy.yml -l gauss -t htpasswd,certbot,nginx
+curl -sI https://staging.blog.vfll.de/ | head -1     # 401
+```
+
+**Refresh** from production: step 2 again - it always overwrites staging
+(database and volume except `wp-config.php`) with the newest backup (02:xx
+nightly). Production is only read from restic. Check the restored snapshot
+times in the output (`Snapshots used`).
+
+**Remove**: `docker rm -f wordpress-staging01 gauss-staging-mysql01`,
+`docker volume rm wordpress_staging_data01 mysql_staging_data01`, drop the
+`staging.blog.vfll.de` entry from `nginx_proxies` and rerun proxy.yml.
 
 ## Reinstall, step by step
 
@@ -106,7 +151,7 @@ exist* (`...ignoring`) - the next task creates `backup.science-and-more.com/gaus
 **4. WordPress + MySQL**
 
 ```sh
-uv run ansible-playbook -i inventories playbooks/wordpress.yml -l gauss
+uv run ansible-playbook -i inventories playbooks/wordpress.yml -l gauss_blog
 ```
 
 Don't open the site yet - without nginx01 it isn't reachable anyway, and the

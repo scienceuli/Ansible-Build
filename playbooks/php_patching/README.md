@@ -92,7 +92,7 @@ uv run ansible-playbook -i inventories playbooks/moodle.yml -l hertz -t moodle
 uv run ansible-playbook -i inventories playbooks/homebox/playbook.yml
 
 # gauss: new WordPress stack (after the reinstall)
-uv run ansible-playbook -i inventories playbooks/wordpress.yml -l gauss -t wordpress
+uv run ansible-playbook -i inventories playbooks/wordpress.yml -l gauss_blog,gauss_blog_staging -t wordpress
 ```
 
 Moodle: `erseco/alpine-moodle` rebuilds its version tags, but only gets a
