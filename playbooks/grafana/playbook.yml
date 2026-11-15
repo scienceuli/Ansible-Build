@@ -21,6 +21,8 @@
       tags: docker_network
     - role: grafana
       tags: grafana
+    - role: alertmanager
+      tags: alertmanager
     - role: alloy
       tags: alloy
     - role: certbot

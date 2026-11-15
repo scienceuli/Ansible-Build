@@ -1,0 +1,21 @@
+---
+# https://hub.docker.com/r/prom/alertmanager/tags
+alertmanager_image: prom/alertmanager:v0.35.0
+alertmanager_description: Alertmanager
+alertmanager_data_dir: /usr/share/{{ alertmanager_hostname }}
+alertmanager_volume_name: "{{ alertmanager_hostname }}"
+# UI (silences, active alerts) - localhost only, use an SSH tunnel
+alertmanager_port: 127.0.0.1:9093
+# Used for the links in the notifications
+alertmanager_external_url: http://localhost:9093
+# Mail receiver (smtp_* settings), e.g. the same account as Grafana
+alertmanager_smtp_smarthost: ""
+alertmanager_smtp_from: ""
+alertmanager_smtp_auth_username: ""
+alertmanager_smtp_auth_password: ""
+alertmanager_smtp_require_tls: true
+alertmanager_mail_to: ""
+alertmanager_group_by: [alertname, instance]
+alertmanager_group_wait: 30s
+alertmanager_group_interval: 5m
+alertmanager_repeat_interval: 12h

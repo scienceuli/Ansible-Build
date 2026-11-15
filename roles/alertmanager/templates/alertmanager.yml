@@ -1,0 +1,27 @@
+# {{ ansible_managed }}
+# Docs: https://prometheus.io/docs/alerting/latest/configuration/
+global:
+  smtp_smarthost: "{{ alertmanager_smtp_smarthost }}"
+  smtp_from: "{{ alertmanager_smtp_from }}"
+  smtp_auth_username: "{{ alertmanager_smtp_auth_username }}"
+  smtp_auth_password: "{{ alertmanager_smtp_auth_password }}"
+  smtp_require_tls: {{ alertmanager_smtp_require_tls | lower }}
+
+route:
+  receiver: mail
+  group_by: {{ alertmanager_group_by | to_json }}
+  group_wait: {{ alertmanager_group_wait }}
+  group_interval: {{ alertmanager_group_interval }}
+  repeat_interval: {{ alertmanager_repeat_interval }}
+
+receivers:
+  - name: mail
+    email_configs:
+      - to: "{{ alertmanager_mail_to }}"
+        send_resolved: true
+
+# No warning mail while the critical alert of the same disk is firing
+inhibit_rules:
+  - source_matchers: [severity="critical"]
+    target_matchers: [severity="warning"]
+    equal: [instance, mountpoint]

@@ -29,16 +29,14 @@
   ansible.builtin.debug:
     msg: "{{ targets }}"
 
-- name: Check if rules.yml exists
-  ansible.builtin.stat:
-    path: "{{ inventory_dir }}/host_vars/{{ inventory_hostname }}/rules.yml"
-  register: rules_file_stat
-
+# rules.yml is on the controller ("is file" is evaluated there, stat would
+# check the target host)
 - name: Copy {{ role_name }} rules
   ansible.builtin.copy:
     src: "{{ inventory_dir }}/host_vars/{{ inventory_hostname }}/rules.yml"
     dest: "{{ prometheus_data_dir }}/rules/rules.yml"
-  when: rules_file_stat.stat.exists
+  when: (inventory_dir ~ '/host_vars/' ~ inventory_hostname ~ '/rules.yml') is file
+  notify: Restart {{ role_name }} container
 
 - name: Copy {{ role_name }} conf
   ansible.builtin.template:

@@ -1,0 +1,38 @@
+---
+- name: Create {{ role_name }} volume
+  community.docker.docker_volume:
+    name: "{{ alertmanager_volume_name }}"
+
+- name: Ensure {{ role_name }} data dir exists
+  ansible.builtin.file:
+    path: "{{ alertmanager_data_dir }}"
+    state: directory
+
+- name: Copy {{ role_name }} conf
+  ansible.builtin.template:
+    src: alertmanager.yml
+    dest: "{{ alertmanager_data_dir }}/alertmanager.yml"
+    # contains the SMTP password; the container runs as nobody (65534)
+    owner: "65534"
+    group: "65534"
+    mode: "0600"
+  notify: Restart {{ role_name }} container
+
+- name: Start {{ role_name }} container {{ alertmanager_hostname }}
+  community.docker.docker_container:
+    name: "{{ alertmanager_hostname }}"
+    labels:
+      description: "{{ alertmanager_description }}"
+    image: "{{ alertmanager_image }}"
+    restart_policy: unless-stopped
+    command: >
+      --config.file=/etc/alertmanager/alertmanager.yml
+      --storage.path=/alertmanager
+      --web.external-url={{ alertmanager_external_url }}
+    volumes:
+      - "{{ alertmanager_volume_name }}:/alertmanager"
+      - "{{ alertmanager_data_dir }}/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro"
+    ports:
+      - "{{ alertmanager_port }}:9093"
+    networks:
+      - name: "{{ docker_network_name }}"
