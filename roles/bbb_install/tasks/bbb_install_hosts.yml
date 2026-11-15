@@ -1,0 +1,30 @@
+---
+# Some provider images (e.g. Netcup) ship an /etc/hosts without localhost
+# entries. nginx then resolves "localhost" (bbb-shared-notes-server.nginx)
+# via systemd-resolved and fails to start if resolved is restarting at the
+# same time, e.g. during unattended-upgrades of libc6.
+- name: Ensure localhost entries in /etc/hosts
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "^{{ item.ip | regex_escape }}\\s"
+    line: "{{ item.ip }}\t{{ item.names }}"
+    insertbefore: BOF
+    backup: true
+  loop:
+    - ip: "::1"
+      names: localhost ip6-localhost ip6-loopback
+    - ip: 127.0.0.1
+      names: localhost
+  loop_control:
+    label: "{{ item.ip }}"
+
+- name: Check if nginx is installed
+  ansible.builtin.stat:
+    path: /usr/sbin/nginx
+  register: bbb_install_nginx_bin
+
+- name: Ensure nginx is started
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: started
+  when: bbb_install_nginx_bin.stat.exists
