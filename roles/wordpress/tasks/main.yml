@@ -18,3 +18,17 @@
   when: wordpress_image is defined
   tags:
     - wordpress
+
+# After the container: on an empty volume the image copies WordPress core
+# (and wp-content) in on the first start
+- name: Include {{ role_name }} themes tasks
+  ansible.builtin.include_tasks:
+    file: "{{ role_name }}_themes.yml"
+    # the included tasks need the tag too, for -t wordpress_themes
+    apply:
+      tags:
+        - wordpress_themes
+  when: wordpress_themes | length > 0
+  tags:
+    - wordpress
+    - wordpress_themes

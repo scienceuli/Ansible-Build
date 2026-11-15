@@ -1,0 +1,19 @@
+---
+# Custom themes from the repo into the WordPress volume (wp-content/themes/<name>).
+# Only adds/updates files - a file deleted in the repo stays in the volume.
+- name: Get volume path of {{ wordpress_volume_name }}
+  community.docker.docker_volume_info:
+    name: "{{ wordpress_volume_name }}"
+  register: wordpress_volume_info
+
+- name: Copy theme {{ item.name }}
+  ansible.builtin.copy:
+    src: "{{ item.src | regex_replace('/?$', '/') }}"
+    dest: "{{ wordpress_volume_info.volume.Mountpoint }}/wp-content/themes/{{ item.name }}/"
+    owner: "33"
+    group: "33"
+    mode: u=rwX,go=rX
+    directory_mode: "0755"
+  loop: "{{ wordpress_themes }}"
+  loop_control:
+    label: "{{ item.name }}"

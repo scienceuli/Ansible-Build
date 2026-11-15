@@ -59,6 +59,7 @@ All containers on the docker network `science-and-more.com`:
 | `backup.yml` | backup of the **old** stack → `~/Backups/gauss-vfllwp/<date_time>/` on the controller |
 | `restore.yml` | newest (or `-e vfllwp_backup_name=…`) backup → new production stack |
 | `staging.yml` | newest restic backup of production → staging |
+| `themes/twentytwelve-child/` | the blog's child theme - master copy, deployed by `wordpress.yml` (`wordpress_themes`) |
 
 A backup contains `wordpress.sql.gz` (mysqldump `--single-transaction`),
 `wp-content.tar`, `project-config.tar.gz` (old compose files, `.env`, certs,
@@ -106,6 +107,33 @@ times in the output (`Snapshots used`).
 **Remove**: `docker rm -f wordpress-staging01 gauss-staging-mysql01`,
 `docker volume rm wordpress_staging_data01 mysql_staging_data01`, drop the
 `staging.blog.vfll.de` entry from `nginx_proxies` and rerun proxy.yml.
+
+## Theme (twentytwelve-child)
+
+The blog runs the parent theme Twenty Twelve (updates itself like core) with
+the child theme `twentytwelve-child` (VFLL header, logo, colours). The child
+theme's master copy is in this repo, `themes/twentytwelve-child/`;
+`playbooks/wordpress.yml` copies it into the volume (`wordpress_themes` in
+both instances' host_vars, owner www-data). A new image or a restore from an
+older backup can't bring back an old version - the next deploy overwrites it.
+
+Changes (2026-11-15): `header.php` uses `<button class="menu-toggle">` (the
+parent's `navigation.js` only binds a button - the menu didn't open on phones)
+and `initial-scale=1.0`; `style.css` pulls the header out by the parent's
+`.site` padding (24px, 40px from 960px - no horizontal scroll on phones).
+
+Change the theme only here (not in the WordPress theme editor or via FTP - the
+next deploy would overwrite it), test on staging, then production:
+
+```sh
+uv run ansible-playbook -i inventories playbooks/wordpress.yml -l gauss_blog_staging -t wordpress_themes
+uv run ansible-playbook -i inventories playbooks/wordpress.yml -l gauss_blog -t wordpress_themes
+```
+
+`-t wordpress_themes` only copies files (no container restart). Files deleted
+in the repo stay in the volume - delete them on gauss by hand. After a staging
+refresh (`staging.yml`) staging has production's theme; deploy the theme to
+staging again if you're testing changes.
 
 ## Reinstall, step by step
 

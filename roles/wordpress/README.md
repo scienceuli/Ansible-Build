@@ -34,6 +34,11 @@ wordpress_smtp_port: "587"
 wordpress_smtp_from: noreply@example.com
 wordpress_smtp_username: bot@example.com
 wordpress_smtp_password: "{{ vault_wordpress_smtp_password }}"
+# Custom themes from the controller -> wp-content/themes/<name>, owner www-data.
+# Adds/updates files only (deleted files stay). default: []
+wordpress_themes:
+  - name: my-child
+    src: "{{ playbook_dir }}/files/my-child"
 ```
 
 And include it in your playbook.
@@ -43,3 +48,5 @@ And include it in your playbook.
   roles:
   - role: wordpress
 ```
+
+Tag `wordpress_themes` deploys only the themes.

@@ -1,0 +1,203 @@
+/*
+Theme Name:     Twentytwelve Child
+Theme URI:		http://wordpress.p167909.webspaceconfig.de/
+Description:    Child Theme for the Twentytwelve theme
+Author:         undkonsorten
+Author URI:     http: //undkonsorten.com
+Template:       twentytwelve
+Version:        1.0
+*/
+@import url("../twentytwelve/style.css");
+/*Typographie*/
+@font-face {
+  font-family: 'fontello';
+  src: url('fonts/fontello.eot?61526219');
+  src: url('fonts/fontello.eot?61526219#iefix') format('embedded-opentype'),
+       url('fonts/fontello.woff?61526219') format('woff'),
+       url('fonts/fontello.ttf?61526219') format('truetype'),
+       url('fonts/fontello.svg?61526219#fontello') format('svg');
+  font-weight: normal;
+  font-style: normal;
+}
+body.custom-font-enabled {
+	font-family: Helvetica, Arial, sans-serif;
+}
+a { 
+	color: #e2382a       ;
+}
+.main-navigation .current-menu-item > a, 
+.main-navigation .current-menu-ancestor > a, 
+.main-navigation .current_page_item > a, 
+.main-navigation .current_page_ancestor > a, 
+.main-navigation li a, 
+.site-header h1 a, 
+.site-header h2 a, 
+.site-header h2,
+.entry-header .entry-title {
+	font-family: 'Source Sans Pro', Arial, Helvetica, Sans-Serif;
+}
+.main-navigation .current-menu-item > a, 
+.main-navigation .current-menu-ancestor > a, 
+.main-navigation .current_page_item > a, 
+.main-navigation .current_page_ancestor > a, 
+.main-navigation li a, 
+.site-header h1 a, 
+.site-header h2 a, 
+.site-header h2 {
+	font-size: 105%;
+	color: #ffffff;
+	text-shadow: 1px 1px 1px rgba(150, 150, 150, 0.5); 
+}
+
+.widget-area .widget a.button-link,
+.widget-area .widget a.button-link:visited  {
+	color: #fff;
+	text-decoration: none;
+	background-color: #e2382a;
+	border: 1px solid #e2382a;
+	border-radius: 3px;
+	text-shadow: 1px 1px 1px rgba(150, 150, 150, 0.5);
+	padding: 8px;
+	padding: 0.57142857rem;
+}
+.widget-area .widget a.button-link:hover  {
+	background-color: #636363;
+	border: 1px solid #636363;
+}
+a:hover, .site-header h1 a:hover,
+.site-header h2 a:hover,
+.main-navigation li a:hover,
+.main-navigation li a:focus {
+	color: #555;
+}
+.entry-header .comments-link,
+.entry-meta time,
+.comments-link a,
+.widget-area .widget a,
+.entry-meta a {
+	color: #757575;	
+}
+.widget-area .widget a:hover,
+.comments-link a:hover,
+.entry-meta a:hover,
+a.comment-reply-link:hover,
+a.comment-edit-link:hover {
+	color: #222;
+}
+.widget-area .widget a:visited {
+	color: #929292;
+}
+.entry-header .comments-link,
+.entry-meta time {
+	font-size:90%;
+}
+.comments-link a { 
+	text-decoration:none;
+}
+.site-content nav {
+	line-height: 1.5;
+}
+/*Hintergrund*/
+body {
+	background-color: #f5f5f5;
+}
+/*Layout Header und Navi*/
+/* Mobile first: the parent pads .site with 24px below 960px and 40px from
+   960px - the full-width header pulls out by exactly that much (-40px on a
+   phone made the page scroll sideways) */
+.site-header {
+	background: url('images/vfll-logo2.png') 24px 40px no-repeat #e2382a;
+	background-position: 1.714285714rem 2.857142857rem;
+	margin: 0 -24px;
+	margin: 0 -1.714285714rem;
+	padding: 2.857142857rem 0;
+}
+header hgroup {
+	margin-top:-4px;
+}
+header hgroup, header nav {
+	margin-left: 88px;
+	margin-left: 6.285714286rem;
+}
+@media screen and (min-width: 600px) {
+	.site-header {
+		background-position: 40px 40px;
+		background-position: 2.857142857rem 2.857142857rem;
+	}
+	header hgroup, header nav {
+		margin-left: 120px;
+		margin-left: 8.57142857rem;
+	}
+}
+@media screen and (min-width: 960px) {
+	.site-header {
+		margin: 0 -40px;
+		margin: 0 -2.857142857rem;
+	}
+}
+.main-navigation ul.nav-menu, 
+.main-navigation div.nav-menu > ul {
+	border-bottom: none;
+}
+.site-header h1,
+.site-header h2,
+.main-navigation {
+	text-align: left;
+}
+.site-content,
+.widget-area {
+	margin: 48px 0 0;
+	margin: 3.428571428rem 0 0;
+}
+/*Layout Artikel*/
+.widget-area .widget a.button-link:before, 
+.widget-area .widget a.button-link:visited:before,
+.entry-meta time:before,
+.comments-link a:before {
+	font-family: 'fontello';
+    	margin:0 0.35714286rem 0 0;
+}
+.widget-area .widget a.button-link:before {
+	content: '\e800'; 
+}
+.entry-meta time:before {
+	content: '\e801'; 
+}
+.comments-link a:before { 
+	content: '\e802'; 
+} 
+.entry-meta .author {
+	display:block;	
+	width:100%;
+	border-bottom: solid 1px #ededed;
+	padding: 15px 0;
+	padding: 1.07142857rem 0;
+}
+.entry-meta time {
+	margin-right: 15px;	
+	margin-right: 1.07142857rem;
+}
+.site-content article {
+	margin-bottom: 48px;
+	margin-bottom: 3.428571428rem;
+}
+.bypostauthor cite span {
+	background-color: #636363;
+	border: 1px solid #636363;
+}
+.wp-caption {
+	padding: 0;
+}
+
+.broken_link, a.broken_link {
+	text-decoration: none !important;
+}
+
+/*Fußzeile*/
+div#main {
+	padding-bottom: 20px;
+	padding-bottom: 1.42857143rem;
+	border-bottom: 1px solid #ededed;
+	margin-bottom: 40px;	
+	margin-bottom: 2.857142857rem;
+}

@@ -19,3 +19,6 @@ wordpress_smtp_env:
   WORDPRESS_SMTP_FROM: "{{ wordpress_smtp_from }}"
   WORDPRESS_SMTP_FROM_NAME: "{{ wordpress_smtp_from }}"
   WORDPRESS_SMTP_AUTH: "true"
+# Custom themes copied from the controller into wp-content/themes/<name>
+# (uid 33 = www-data), e.g. [{ name: my-child, src: "{{ playbook_dir }}/files/my-child" }]
+wordpress_themes: []
