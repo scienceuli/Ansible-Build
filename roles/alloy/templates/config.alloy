@@ -11,6 +11,12 @@ prometheus.exporter.unix "host" {
   procfs_path = "/host/proc"
   sysfs_path  = "/host/sys"
   rootfs_path = "/host/root"
+{% if alloy_textfile_directory %}
+
+  textfile {
+    directory = "/host/root{{ alloy_textfile_directory }}"
+  }
+{% endif %}
 }
 
 prometheus.scrape "host" {
@@ -35,6 +41,23 @@ prometheus.scrape "docker" {
 }
 {% endif %}
 
+{% for scrape in alloy_scrapes %}
+// Additional target: {{ scrape.name }}
+prometheus.scrape "{{ scrape.name }}" {
+  targets         = [{"__address__" = "{{ scrape.address }}"}]
+  job_name        = "{{ scrape.name }}"
+  metrics_path    = "{{ scrape.metrics_path | default('/metrics') }}"
+  scrape_interval = "{{ alloy_scrape_interval }}"
+{% if scrape.basic_auth_username is defined %}
+  basic_auth {
+    username = "{{ scrape.basic_auth_username }}"
+    password = "{{ scrape.basic_auth_password }}"
+  }
+{% endif %}
+  forward_to      = [prometheus.relabel.instance.receiver]
+}
+
+{% endfor %}
 // Same instance label for all metrics of this host
 prometheus.relabel "instance" {
   rule {

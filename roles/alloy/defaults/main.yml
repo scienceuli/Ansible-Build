@@ -11,6 +11,17 @@ alloy_scrape_interval: 30s
 alloy_instance: "{{ inventory_hostname }}"
 alloy_unix_enabled: true
 alloy_cadvisor_enabled: true
+# *.prom files of write-node-exporter-metric (cron role), e.g.
+# node_cron_job_exit_code of the restic/rclone cron jobs. Host path, seen
+# through the /host/root mount. "" disables the textfile collector.
+alloy_textfile_directory: /var/tmp
+# Additional scrape targets in the docker network, e.g. rest-server metrics:
+# - name: restic_server            # component label: letters, digits, _
+#   address: restic01:8000
+#   metrics_path: /metrics         # default
+#   basic_auth_username: restic    # optional
+#   basic_auth_password: secret
+alloy_scrapes: []
 # Basic auth for remote_write, needed when pushing over the internet
 # (e.g. https://prometheus.example.com/api/v1/write behind nginx)
 alloy_prometheus_basic_auth_username: ""

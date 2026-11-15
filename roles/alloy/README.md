@@ -23,6 +23,13 @@ alloy_scrape_interval: 30s # default
 alloy_instance: example # default: "{{ inventory_hostname }}"
 alloy_unix_enabled: true # default
 alloy_cadvisor_enabled: true # default
+alloy_textfile_directory: /var/tmp # default, *.prom files (write-node-exporter-metric), "" = off
+alloy_scrapes: [] # default, additional targets in the docker network:
+#  - name: restic_server
+#    address: restic01:8000
+#    metrics_path: /metrics # default
+#    basic_auth_username: restic
+#    basic_auth_password: "{{ vault_restic_server_password }}"
 ```
 
 Push to a Prometheus on another host (nginx with basic auth in front of `/api/v1/write`):
