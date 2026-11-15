@@ -1,4 +1,6 @@
 ---
+# https://hub.docker.com/r/grafana/alloy/tags
+alloy_image: grafana/alloy:v1.20.1
 alloy_description: Grafana Alloy {{ inventory_hostname_short }}
 alloy_data_dir: /usr/share/{{ alloy_hostname }}
 alloy_volume_name: "{{ alloy_hostname }}"

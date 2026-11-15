@@ -10,13 +10,12 @@ Prometheus must run with `--web.enable-remote-write-receiver` (prometheus role d
 
 ## Usage
 
-Configure the role.
+Configure the role. The role runs on hosts where `alloy_hostname` is defined.
 
 ```yml
-# https://hub.docker.com/r/grafana/alloy/tags
-alloy_image: grafana/alloy:v1.20.1
 alloy_hostname: alloy01
 alloy_prometheus_url: http://prom01:9090/api/v1/write
+alloy_image: grafana/alloy:v1.20.1 # default, https://hub.docker.com/r/grafana/alloy/tags
 alloy_description: Alloy # default: Grafana Alloy {{ inventory_hostname_short }}
 alloy_data_dir: /usr/share/alloy # default: "/usr/share/{{ alloy_hostname }}"
 alloy_port: 127.0.0.1:12345 # default
