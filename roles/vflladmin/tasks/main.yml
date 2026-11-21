@@ -1,0 +1,138 @@
+---
+# roles/vflladmin/tasks/main.yml
+
+- name: Ensure required variables are set
+  ansible.builtin.assert:
+    that:
+      - vflladmin_domain is defined
+      - vflladmin_secret_key is defined
+      - vflladmin_db_password is defined
+      - vflladmin_network is defined
+    fail_msg: >
+      vflladmin_domain, vflladmin_network, vflladmin_secret_key and
+      vflladmin_db_password must be set (secrets via an ansible-vault-encrypted
+      host_vars file).
+
+- name: Install git
+  ansible.builtin.apt:
+    name: git
+    state: present
+    update_cache: true
+
+- name: Ensure compose directory exists
+  ansible.builtin.file:
+    path: "{{ vflladmin_compose_dir }}"
+    state: directory
+    mode: "0755"
+
+# static/ is read by the nginx container, so 0755; media/ is set to 0750 by
+# the container's entrypoint (private)
+- name: Ensure data directory exists (writable by the container user)
+  ansible.builtin.file:
+    path: "{{ vflladmin_data_dir }}"
+    state: directory
+    owner: "{{ vflladmin_container_uid }}"
+    group: "{{ vflladmin_container_uid }}"
+    mode: "0755"
+
+- name: Ensure deploy-key directory exists
+  ansible.builtin.file:
+    path: "{{ vflladmin_deploy_key_path | dirname }}"
+    state: directory
+    mode: "0700"
+
+- name: Generate deploy key for the private repo
+  ansible.builtin.command:
+    argv:
+      - ssh-keygen
+      - -t
+      - ed25519
+      - -N
+      - ""
+      - -C
+      - "{{ vflladmin_name }}-deploy@{{ inventory_hostname }}"
+      - -f
+      - "{{ vflladmin_deploy_key_path }}"
+    creates: "{{ vflladmin_deploy_key_path }}"
+
+- name: Read deploy public key
+  ansible.builtin.slurp:
+    src: "{{ vflladmin_deploy_key_path }}.pub"
+  register: vflladmin_deploy_pubkey
+
+- name: Trust the git host's SSH host key
+  ansible.builtin.known_hosts:
+    path: "{{ vflladmin_known_hosts_path }}"
+    name: "{{ vflladmin_git_host }}"
+    key: "{{ vflladmin_git_host_key }}"
+
+- name: Fetch vflladmin source from git
+  block:
+    - name: Fetch vflladmin source from git
+      ansible.builtin.git:
+        repo: "{{ vflladmin_git_repo }}"
+        dest: "{{ vflladmin_src_dir }}"
+        version: "{{ vflladmin_git_version }}"
+      environment:
+        GIT_SSH_COMMAND: >-
+          ssh -i {{ vflladmin_deploy_key_path }}
+          -o UserKnownHostsFile={{ vflladmin_known_hosts_path }}
+          -o IdentitiesOnly=yes
+      register: vflladmin_source_sync
+  rescue:
+    - name: Explain how to authorize the deploy key
+      ansible.builtin.fail:
+        msg: >
+          Could not fetch {{ vflladmin_git_repo }}. If this is the first run,
+          add the following public key as a read-only Deploy key on the
+          repository (GitHub: Settings > Deploy keys), then re-run:
+          {{ vflladmin_deploy_pubkey.content | b64decode | trim }}
+
+- name: Deploy env file
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ vflladmin_compose_dir }}/.env"
+    mode: "0600"          # Django secret key, DB and SMTP credentials
+  register: vflladmin_env_file
+
+- name: Deploy docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ vflladmin_compose_dir }}/docker-compose.yml"
+    mode: "0600"          # contains the DB password
+  register: vflladmin_compose_file
+
+# Migrations and collectstatic run in the web container's entrypoint
+- name: Build and (re)start vflladmin via docker compose
+  community.docker.docker_compose_v2:
+    project_src: "{{ vflladmin_compose_dir }}"
+    state: present
+    remove_orphans: true
+    build: "{{ 'always' if vflladmin_source_sync.changed else 'policy' }}"
+    recreate: "{{ 'always' if (vflladmin_source_sync.changed or vflladmin_env_file.changed or vflladmin_compose_file.changed) else 'auto' }}"
+
+# Output goes to syslog: journalctl -t vflladmin-cron
+- name: Schedule periodic management commands
+  ansible.builtin.cron:
+    name: "{{ vflladmin_name }} {{ item.name }}"
+    minute: "{{ item.minute | default('0') }}"
+    hour: "{{ item.hour | default('*') }}"
+    job: >-
+      docker exec {{ vflladmin_name }} python manage.py {{ item.command }} 2>&1
+      | logger -t vflladmin-cron
+  loop: "{{ vflladmin_cron_jobs }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# Opt-in: -e vflladmin_restore_dump=/path/on/control/machine.pgdump
+- name: Replace the database with a dump
+  ansible.builtin.include_role:
+    name: compose_pg_restore
+  vars:
+    compose_pg_restore_dump: "{{ vflladmin_restore_dump }}"
+    compose_pg_restore_project_dir: "{{ vflladmin_compose_dir }}"
+    compose_pg_restore_db_container: "{{ vflladmin_name }}-db"
+    compose_pg_restore_db_name: "{{ vflladmin_db_name }}"
+    compose_pg_restore_db_user: "{{ vflladmin_db_user }}"
+    compose_pg_restore_app_services: ["web", "worker"]
+  when: vflladmin_restore_dump | default('') != ''

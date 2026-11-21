@@ -1,0 +1,93 @@
+---
+# roles/vflladmin/defaults/main.yml
+#
+# VFLL member administration (Django, github.com/scienceuli/vflladmin_project,
+# private repo) as docker compose stack: web (gunicorn), worker (celery:
+# invoice PDFs and mails in the background), redis (celery broker) and
+# Postgres. The nginx container (roles nginx/certbot, configured on the docker
+# host via nginx_proxies) terminates TLS, proxies to the web container over
+# the shared docker network and serves /static/ from the bind-mounted data
+# dir. /media/ (member documents, invoices) is private and only served by
+# Django after a permission check - never mount it into nginx.
+
+# Required, set in host_vars (no sane default):
+#   vflladmin_domain       - public FQDN, e.g. memberadmin.vfll.de
+#   vflladmin_network      - docker network shared with the nginx container
+#                            (the docker host's docker_network_name)
+#   vflladmin_secret_key   - Django SECRET_KEY (vault it)
+#   vflladmin_db_password  - Postgres password (vault it)
+
+# Private repo: cloned via SSH with a read-only deploy key generated on the
+# host (vflladmin_deploy_key_path). The first run prints the public key to
+# add under GitHub > repo > Settings > Deploy keys.
+vflladmin_git_repo: "git@github.com:scienceuli/vflladmin_project.git"
+vflladmin_git_version: "main"
+vflladmin_git_host: "github.com"
+vflladmin_git_host_key: "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+
+# Container name of the web service = nginx upstream (dest_hostname), prefix
+# of the other containers (<name>-db, <name>-redis, <name>-worker), compose
+# project, image and directory.
+vflladmin_name: "vflladmin"
+
+vflladmin_compose_dir: "/opt/docker/{{ vflladmin_name }}"
+vflladmin_src_dir: "{{ vflladmin_compose_dir }}/src"
+vflladmin_deploy_key_path: "{{ vflladmin_compose_dir }}/deploy/deploy_key"
+vflladmin_known_hosts_path: "{{ vflladmin_compose_dir }}/deploy/known_hosts"
+# Mounted at /data: static/, media/, backup/
+vflladmin_data_dir: "{{ vflladmin_compose_dir }}/data"
+vflladmin_db_data_dir: "{{ vflladmin_compose_dir }}/db-data"
+
+# Must match the `app` user created in the Dockerfile
+vflladmin_container_uid: 1000
+vflladmin_restart_policy: "unless-stopped"
+vflladmin_gunicorn_workers: 3
+vflladmin_celery_concurrency: 2
+
+vflladmin_db_image: "postgres:16-alpine"
+vflladmin_db_name: "vflladmin"
+vflladmin_db_user: "vflladmin"
+vflladmin_redis_image: "redis:7-alpine"
+# Replace the database with a dump on EVERY run that sets it - pass it with
+# -e only: -e vflladmin_restore_dump=/path/on/control/machine (pg_dump -Fc).
+# Dumps of the former euler production work as they are: the web container
+# repairs their migration history on start (fix_legacy_migration_history).
+# vflladmin_restore_dump: ""
+
+vflladmin_debug: false
+vflladmin_use_2fa: false
+vflladmin_log_level: "INFO"
+
+# Invoice PDFs and invoice mails in the celery worker (as on euler)
+vflladmin_pdfs_in_background: true
+vflladmin_mails_in_background: true
+
+# Mail. "console" only logs mails - the safe default for test hosts.
+# "smtp" sends via the SMTP vars, "mailtrap" uses the Mailtrap API for the
+# batch sending of invoice mails.
+vflladmin_email_backend_via: "console"
+vflladmin_default_from_email: "admin@vfll.de"
+vflladmin_email_host: ""
+vflladmin_email_port: 587
+vflladmin_email_use_tls: true
+vflladmin_email_host_user: ""
+vflladmin_email_host_password: ""
+vflladmin_email_batch_size: 10
+vflladmin_email_batch_pause: 1.0
+vflladmin_mailtrap_api_token: ""
+vflladmin_mailtrap_use_sandbox: true
+vflladmin_mailtrap_inbox_id: ""
+
+# Any further env vars for vflladmin.settings.container
+vflladmin_extra_env: {}
+
+# Further host names the app answers to (ALLOWED_HOSTS, CSRF_TRUSTED_ORIGINS)
+vflladmin_domain_aliases: []
+
+# Periodic management commands, run on the docker host via
+# `docker exec <vflladmin_name> python manage.py <command>`, e.g.
+#   - { name: dbbackup, command: dbbackup, minute: "0", hour: "10,18" }
+vflladmin_cron_jobs: []
+
+# TLS is terminated by the nginx container; only used for SITE_URL.
+vflladmin_enable_ssl: true
