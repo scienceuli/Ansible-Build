@@ -11,7 +11,7 @@ each a docker compose stack behind the nginx container (`nginx` +
 | `vfllcms_name` | `vfllcms` | `vfllcms-staging` |
 | containers | `vfllcms-web` (= nginx `dest_hostname`), `vfllcms-db` | `vfllcms-staging-web`, `vfllcms-staging-db` |
 | compose project, image, directory | `vfllcms`, `vfllcms:latest`, `/opt/docker/vfllcms` | `vfllcms-staging`, … , `/opt/docker/vfllcms-staging` |
-| mail | SMTP | file backend (`data/sent_emails`) |
+| mail | SMTP | file backend (`data/mail`) |
 | cron `get_events` 06:00, `get_blog` 00:00 | yes | no |
 | restic backup | yes | no |
 

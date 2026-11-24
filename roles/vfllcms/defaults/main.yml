@@ -71,7 +71,7 @@ vfllcms_port: 8010
 
 vfllcms_debug: false
 
-# Mail: the file backend writes mails to {{ vfllcms_data_dir }}/sent_emails
+# Mail: the file backend writes mails to {{ vfllcms_data_dir }}/mail
 # instead of sending them - the safe default. Set
 # "django.core.mail.backends.smtp.EmailBackend" plus the SMTP vars to send.
 vfllcms_email_backend: "django.core.mail.backends.filebased.EmailBackend"
