@@ -11,7 +11,7 @@ All containers on the docker network `science-and-more.com`:
 
 | Container | Image | Data | Role |
 |---|---|---|---|
-| `nginx01` + `certbot01` | `nginx:1.31.3-alpine`, `certbot/certbot` | `/usr/share/nginx01`, `/usr/share/certbot01` | `nginx`, `certbot` - only container with published ports (80/443) |
+| `nginx01` + `certbot01` | `nginx:1.31.10-alpine`, `certbot/certbot` | `/usr/share/nginx01`, `/usr/share/certbot01` | `nginx`, `certbot` - only container with published ports (80/443) |
 | `nextcloud01` | `nextcloud:35-apache` | volume `nextcloud01` → `/var/www/html` (code, `config/`, `custom_apps/`), **bind mount `/data` → `/data`** (user files, 48 GB+) | `nextcloud_docker` |
 | `mariadb01` | `mariadb:10.11` | volume `mariadb01` | `mariadb` |
 | `redis01` | `redis:7-alpine` | volume `redis01` | `redis` |

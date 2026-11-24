@@ -18,7 +18,7 @@ vn_redis_hostname: redis01
 vn_nextcloud_hostname: nextcloud01
 vn_onlyoffice_hostname: doc01
 
-# Only nginx01 talks to nextcloud01 (docker network)
+# Only nginx05 talks to nextcloud01 (docker network)
 vn_nextcloud_ports: []
 vn_onlyoffice_ports: []
 vn_nextcloud_cron: true
