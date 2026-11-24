@@ -75,6 +75,9 @@ vfllcms_debug: false
 # instead of sending them - the safe default. Set
 # "django.core.mail.backends.smtp.EmailBackend" plus the SMTP vars to send.
 vfllcms_email_backend: "django.core.mail.backends.filebased.EmailBackend"
+# Sender of all app mails (password reset, invitations, forms). The SMTP user
+# must be allowed to send as this address (SPF/DMARC alignment).
+vfllcms_default_from_email: "registration@vfll.de"
 vfllcms_email_host: ""
 vfllcms_email_port: 587
 vfllcms_email_use_tls: true
